@@ -1,6 +1,6 @@
 # PursuitHQ — Technical & Database Design
 
-This document describes every class (entity) in PursuitHQ's backend, how they relate to each other, and the supporting layers (DTOs, Services, Data) that sit around them. It reflects the current planned feature set: authentication, academic planning, internship/job tracking, an AI-assisted resume builder, an AI-assisted study planner, career growth tracking, and student-to-student networking.
+This document describes every class (entity) in PursuitHQ's backend, how they relate to each other, and the supporting layers (DTOs, Services, Data) that sit around them. It reflects the current planned feature set: authentication, academic planning, per-course study materials (files, folders, and typed notes), internship/job tracking, an AI-assisted resume builder, an AI-assisted study planner, career growth tracking, and student-to-student networking.
 
 ## 1. Entity Descriptions
 
@@ -53,6 +53,51 @@ Represents one recurring weekly meeting time for a course. A single `Course` can
 | DueDate | DateTime | |
 | Status | enum (`AssignmentStatus`: NotStarted, InProgress, Completed) | |
 | Grade | string? | Optional, filled in after graded |
+
+### MaterialFolder
+
+A folder inside a course, used to organize study materials like a file system. Folders can nest via `ParentFolderId` (null means it sits at the course root).
+
+| Property | Type | Notes |
+|---|---|---|
+| Id | int | |
+| UserId | string | FK -> ApplicationUser |
+| CourseId | int | FK -> Course |
+| Name | string | |
+| ParentFolderId | int? | Self-referencing FK -> MaterialFolder; null = course root |
+| CreatedAt | DateTime | |
+
+### StudyMaterial
+
+Metadata for one uploaded file. The file bytes live in storage (local disk in development, cloud object storage in production); only the metadata lives in PostgreSQL.
+
+| Property | Type | Notes |
+|---|---|---|
+| Id | int | |
+| UserId | string | FK -> ApplicationUser |
+| CourseId | int | FK -> Course |
+| FolderId | int? | FK -> MaterialFolder; null = course root |
+| FileName | string | Original name shown to the user and used on download |
+| StoredPath | string | Internal storage key (a GUID-based name), never exposed to the client |
+| ContentType | string | MIME type, validated against the allow-list |
+| SizeBytes | long | |
+| Description | string? | Optional |
+| UploadedAt | DateTime | |
+
+### Note
+
+A note typed directly in the app, stored as text rather than an uploaded file.
+
+| Property | Type | Notes |
+|---|---|---|
+| Id | int | |
+| UserId | string | FK -> ApplicationUser |
+| CourseId | int | FK -> Course |
+| FolderId | int? | FK -> MaterialFolder; null = course root |
+| Title | string | |
+| Content | string | Markdown or plain text |
+| CreatedAt | DateTime | |
+| UpdatedAt | DateTime | |
 
 ### JobApplication *(covers both internships and full-time/part-time jobs)*
 
@@ -201,6 +246,37 @@ classDiagram
         +string? Grade
     }
 
+    class MaterialFolder {
+        +int Id
+        +string UserId
+        +int CourseId
+        +string Name
+        +int? ParentFolderId
+        +DateTime CreatedAt
+    }
+
+    class StudyMaterial {
+        +int Id
+        +string UserId
+        +int CourseId
+        +int? FolderId
+        +string FileName
+        +string StoredPath
+        +string ContentType
+        +long SizeBytes
+        +DateTime UploadedAt
+    }
+
+    class Note {
+        +int Id
+        +string UserId
+        +int CourseId
+        +int? FolderId
+        +string Title
+        +string Content
+        +DateTime UpdatedAt
+    }
+
     class JobApplication {
         +int Id
         +string UserId
@@ -286,6 +362,12 @@ classDiagram
     ApplicationUser "1" --> "*" Course : owns
     Course "1" --> "*" ClassSchedule : has
     Course "1" --> "*" Assignment : has
+    Course "1" --> "*" MaterialFolder : organizes
+    Course "1" --> "*" StudyMaterial : stores
+    Course "1" --> "*" Note : stores
+    MaterialFolder "0..1" --> "*" MaterialFolder : contains
+    MaterialFolder "0..1" --> "*" StudyMaterial : contains
+    MaterialFolder "0..1" --> "*" Note : contains
     ApplicationUser "1" --> "*" JobApplication : tracks
     ApplicationUser "1" --> "*" Resume : maintains
     ApplicationUser "1" --> "*" StudySession : schedules
@@ -331,6 +413,7 @@ Notice `UserId` never appears in either DTO — the controller reads the current
 |---|---|
 | Identity's `UserManager` / `SignInManager` | Registration, login, password management (built into ASP.NET Core Identity — no custom auth service needed) |
 | `ResumeAiService` | Sends a student's `Resume.Content` to an AI API and returns suggested edits |
+| `IFileStorageService` / `LocalFileStorageService` | Saves, streams, and deletes uploaded files; keeps storage details out of controllers so the backend can move to cloud storage later |
 | `StudyPlannerAiService` | Reads a student's `Course`, `Assignment`, and existing `StudySession` data; generates suggested `StudySession` rows (`IsAiGenerated = true`) |
 
 Additional services can be added as needed (e.g. a notification/reminder service later), but these three cover everything currently planned.
@@ -343,6 +426,9 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Course> Courses { get; set; }
     public DbSet<ClassSchedule> ClassSchedules { get; set; }
     public DbSet<Assignment> Assignments { get; set; }
+    public DbSet<MaterialFolder> MaterialFolders { get; set; }
+    public DbSet<StudyMaterial> StudyMaterials { get; set; }
+    public DbSet<Note> Notes { get; set; }
     public DbSet<JobApplication> JobApplications { get; set; }
     public DbSet<Resume> Resumes { get; set; }
     public DbSet<StudySession> StudySessions { get; set; }
@@ -371,12 +457,13 @@ PursuitHQ.API
 
 1. **ApplicationUser + Identity setup** — everything else has a `UserId` FK, so auth comes first.
 2. **Course, ClassSchedule, Assignment** — Academic Planner (Sprint 3–4 in Roadmap.md).
-3. **JobApplication** — Internship Tracker (Sprint 6).
-4. **Goal, Skill, Certification** — Career Growth (Sprint 5, 7).
-5. **StudentConnection, Message** — Networking Hub (Sprint 9).
-6. **Resume + ResumeAiService** — AI resume builder (Sprint 8+).
-7. **StudySession + StudyPlannerAiService** — AI study planner (Sprint 8+).
-8. **NetworkingContact** — only if you decide to keep it (see below).
+3. **MaterialFolder, StudyMaterial, Note** — Study Materials, plus `IFileStorageService` (see Architecture.md).
+4. **JobApplication** — Internship Tracker (Sprint 6).
+5. **Goal, Skill, Certification** — Career Growth (Sprint 5, 7).
+6. **StudentConnection, Message** — Networking Hub (Sprint 9).
+7. **Resume + ResumeAiService** — AI resume builder (Sprint 8+).
+8. **StudySession + StudyPlannerAiService** — AI study planner (Sprint 8+).
+9. **NetworkingContact** — only if you decide to keep it (see below).
 
 ## 8. Open Questions
 

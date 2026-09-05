@@ -56,8 +56,7 @@ PursuitHQ.API
 │                    MaterialsController, NotesController, FoldersController,
 │                    StudySessionsController, ApplicationsController,
 │                    ResumesController, GoalsController, SkillsController,
-│                    CertificationsController, NetworkController,
-│                    MessagesController, DashboardController,
+│                    CertificationsController, DashboardController,
 │                    CalendarController, StudyToolsController,
 │                    JobSearchController, NotificationsController, JobsController
 ├── Models           Entity classes (see DatabaseDesign.md)
@@ -293,7 +292,6 @@ PursuitHQ sends lecture notes, uploaded coursework, and resumes to this API, so 
 | `/applications` | Job/internship board and table views |
 | `/resumes`, `/resumes/[id]` | Resume list and editor with AI review |
 | `/growth` | Goals, skills, certifications |
-| `/network`, `/network/messages` | Students, connections, messaging |
 | `/settings` | Profile, password, notification preferences, time zone, account deletion |
 
 Protected routes check for a valid token and redirect to `/login` when missing.

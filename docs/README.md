@@ -17,7 +17,7 @@ The full plan for PursuitHQ — what it does, how it's built, and what it takes 
 
 ## Quick summary
 
-PursuitHQ is a student success platform: courses and a calendar covering classes and other activities, assignments, per-course study materials (files, folders, and typed notes), AI study tools that turn those materials into flashcards, practice quizzes, and study guides, an AI study planner, email reminders for deadlines and schedules, internship and job search plus application tracking, an AI-assisted resume builder, goals/skills/certifications, and student-to-student networking with messaging.
+PursuitHQ is a student success platform: courses and a calendar covering classes and other activities, assignments, per-course study materials (files, folders, and typed notes), AI study tools that turn those materials into flashcards, practice quizzes, and study guides, an AI study planner, email reminders for deadlines and schedules, internship and job search plus application tracking, an AI-assisted resume builder, and goals/skills/certifications.
 
 **Stack:** ASP.NET Core Web API on .NET 10 · Entity Framework Core · PostgreSQL · Next.js · Tailwind CSS
 
@@ -27,9 +27,8 @@ These are recorded so they don't get lost. Update this list as they're settled.
 
 1. ~~**AI provider**~~ — **Decided: Google Gemini**, behind an `IAiService` interface. Free Flash tier for development and personal use; Azure OpenAI on the Azure for Students credit as the production upgrade path. See `Architecture.md` §5d. **Open sub-item:** the free tier uses submitted content to improve Google's products, so before other people use the AI features, either disclose this in a privacy policy or move to a paid tier. Treat as a launch blocker.
 2. **Job-board API** — Adzuna is the leading candidate (free app id and key, documented API). LinkedIn and Indeed do not offer open job-search APIs and must not be scraped.
-3. **External networking contacts** — keep `NetworkingContact` for recruiters and alumni alongside student-to-student networking, or drop it? *(Currently: planned for the Later phase.)*
-4. **Email sending domain** — Resend's free tier covers the volume; a custom sending domain needs DNS records on a domain you control.
-5. **Cold starts** — accept Render free's ~1 minute wake-up, keep the instance warm with the reminder cron, or pay ~$7/month once real users are on it.
+3. **Email sending domain** — Resend's free tier covers the volume; a custom sending domain needs DNS records on a domain you control.
+4. **Cold starts** — accept Render free's ~1 minute wake-up, keep the instance warm with the reminder cron, or pay ~$7/month once real users are on it.
 
 ## Keeping these current
 

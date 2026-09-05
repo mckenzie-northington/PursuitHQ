@@ -11,8 +11,8 @@ Today students spread this across a campus LMS, a calendar app, a spreadsheet of
 | User | Description | Primary needs |
 |---|---|---|
 | Undergraduate student | Taking 3–6 courses per semester, applying to internships | Track coursework, deadlines, applications; keep materials organized |
-| Graduate / transfer student | Heavier research or job-search focus | Resume iteration, networking, goal tracking |
-| Student organization member | Uses the networking side heavily | Find and message peers in the same courses/major |
+| Graduate / transfer student | Heavier research or job-search focus | Resume iteration, goal tracking, study materials |
+| Student balancing work and school | Juggling classes with shifts and commitments | Calendar covering everything, reminders that actually arrive |
 
 Out of scope for now: professors, advisors, and university administrators. The app is student-facing only.
 
@@ -38,11 +38,9 @@ Out of scope for now: professors, advisors, and university administrators. The a
 - AI study tools: flashcards, practice quizzes, and study guides generated from uploaded materials
 - AI study planner that suggests study sessions
 - Internship/job search with resume matching
-- Student-to-student connections and direct messaging
 
 ### 3.3 Later / stretch
 
-- External networking contacts (recruiters, alumni)
 - Analytics dashboard with charts
 - AI internship match analyzer
 - Email/push reminders for deadlines
@@ -92,12 +90,6 @@ Out of scope for now: professors, advisors, and university administrators. The a
 - As a student, I can list my skills with a proficiency level.
 - As a student, I can record certifications I've earned.
 
-### Networking
-- As a student, I can search for other students on the platform.
-- As a student, I can send, accept, and decline connection requests.
-- As a student, I can message students I'm connected with.
-- As a student, I can block or report another user.
-
 ## 5. Functional Requirements
 
 | ID | Requirement |
@@ -110,25 +102,23 @@ Out of scope for now: professors, advisors, and university administrators. The a
 | FR-6 | The system shall store uploaded files outside the database and record their metadata in PostgreSQL. |
 | FR-7 | The system shall generate AI study plans on demand and persist accepted suggestions as study sessions. |
 | FR-8 | The system shall generate AI resume feedback on demand without modifying the stored resume unless the user accepts a change. |
-| FR-9 | The system shall support connection requests between users with pending/accepted/declined states. |
-| FR-10 | The system shall deliver direct messages between connected users and track read status. |
-| FR-11 | The system shall allow a user to export or delete all of their data. |
-| FR-12 | The system shall return consistent, structured error responses for all failures. |
-| FR-13 | The system shall lock an account for 15 minutes after 5 failed login attempts within 15 minutes. |
-| FR-14 | The system shall let a student record non-class activities on their calendar, including recurring ones. |
-| FR-15 | The system shall email reminders for upcoming assignments and events according to each student's saved preferences and time zone, and shall not send the same reminder twice. |
-| FR-16 | The system shall let a student disable all email notifications. |
-| FR-17 | The system shall extract text from uploaded PDF, DOCX, and PPTX files and generate flashcards, practice quizzes, and study guides from it. |
-| FR-18 | The system shall record quiz attempts and scores, and allow retaking a quiz. |
-| FR-19 | The system shall let a student search internships and jobs from an external job board, rank them against their resume, and link out to the original posting to apply. |
-| FR-20 | The system shall never submit a job application on a student's behalf or store employer-site credentials. |
+| FR-9 | The system shall allow a user to export or delete all of their data. |
+| FR-10 | The system shall return consistent, structured error responses for all failures. |
+| FR-11 | The system shall lock an account for 15 minutes after 5 failed login attempts within 15 minutes. |
+| FR-12 | The system shall let a student record non-class activities on their calendar, including recurring ones. |
+| FR-13 | The system shall email reminders for upcoming assignments and events according to each student's saved preferences and time zone, and shall not send the same reminder twice. |
+| FR-14 | The system shall let a student disable all email notifications. |
+| FR-15 | The system shall extract text from uploaded PDF, DOCX, and PPTX files and generate flashcards, practice quizzes, and study guides from it. |
+| FR-16 | The system shall record quiz attempts and scores, and allow retaking a quiz. |
+| FR-17 | The system shall let a student search internships and jobs from an external job board, rank them against their resume, and link out to the original posting to apply. |
+| FR-18 | The system shall never submit a job application on a student's behalf or store employer-site credentials. |
 
 ## 6. Non-Functional Requirements
 
 | Category | Requirement |
 |---|---|
 | Security | Passwords hashed by ASP.NET Core Identity; all traffic over HTTPS; secrets never committed to source control. |
-| Privacy | A user's materials, notes, resumes, and applications are visible only to them. Messages are visible only to sender and recipient. |
+| Privacy | A user's materials, notes, resumes, and applications are visible only to them. No student data is ever shared between accounts. |
 | Performance | Typical list endpoints respond in under 500 ms with realistic data volumes; list endpoints are paginated. |
 | Reliability | Database backed up daily in production; migrations are versioned and reversible. |
 | Usability | Every destructive action asks for confirmation; forms show inline validation errors. |

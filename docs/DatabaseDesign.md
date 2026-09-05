@@ -1,6 +1,6 @@
 # PursuitHQ — Technical & Database Design
 
-This document describes every class (entity) in PursuitHQ's backend, how they relate to each other, and the supporting layers (DTOs, Services, Data) that sit around them. It reflects the current planned feature set: authentication, academic planning, per-course study materials (files, folders, and typed notes), AI study tools (flashcards, quizzes, study guides), email reminders, internship/job search and tracking, an AI-assisted resume builder, an AI-assisted study planner, career growth tracking, and student-to-student networking.
+This document describes every class (entity) in PursuitHQ's backend, how they relate to each other, and the supporting layers (DTOs, Services, Data) that sit around them. It reflects the current planned feature set: authentication, academic planning, per-course study materials (files, folders, and typed notes), AI study tools (flashcards, quizzes, study guides), email reminders, internship/job search and tracking, an AI-assisted resume builder, an AI-assisted study planner, and career growth tracking.
 
 ## 1. Entity Descriptions
 
@@ -322,46 +322,6 @@ A condensed, structured summary generated from one or more uploaded files (e.g. 
 | Name | string | |
 | DateEarned | DateTime | |
 
-### StudentConnection
-
-Represents a connection (like a friend/follow request) between two students.
-
-| Property | Type | Notes |
-|---|---|---|
-| Id | int | |
-| RequesterId | string | FK → ApplicationUser |
-| ReceiverId | string | FK → ApplicationUser |
-| Status | enum (`ConnectionStatus`: Pending, Accepted, Declined) | |
-| CreatedAt | DateTime | |
-
-### Message
-
-Direct messages between connected students.
-
-| Property | Type | Notes |
-|---|---|---|
-| Id | int | |
-| SenderId | string | FK → ApplicationUser |
-| ReceiverId | string | FK → ApplicationUser |
-| Content | string | |
-| SentAt | DateTime | |
-| IsRead | bool | |
-
-### NetworkingContact *(pending decision — see Open Questions)*
-
-Originally planned for tracking **external** professional contacts (recruiters, alumni, LinkedIn connections), separate from in-app student-to-student networking above.
-
-| Property | Type | Notes |
-|---|---|---|
-| Id | int | |
-| UserId | string | FK → ApplicationUser |
-| Name | string | |
-| Company | string | |
-| Role | string | |
-| LinkedIn | string? | |
-| LastContactDate | DateTime? | |
-| Notes | string? | |
-
 ## 2. UML Class Diagrams
 
 The model is split across three diagrams so each stays readable. Together they cover every entity in Section 1.
@@ -490,34 +450,6 @@ classDiagram
         +DateTime DateEarned
     }
 
-    class StudentConnection {
-        +int Id
-        +string RequesterId
-        +string ReceiverId
-        +ConnectionStatus Status
-        +DateTime CreatedAt
-    }
-
-    class Message {
-        +int Id
-        +string SenderId
-        +string ReceiverId
-        +string Content
-        +DateTime SentAt
-        +bool IsRead
-    }
-
-    class NetworkingContact {
-        +int Id
-        +string UserId
-        +string Name
-        +string Company
-        +string Role
-        +string? LinkedIn
-        +DateTime? LastContactDate
-        +string? Notes
-    }
-
     class CalendarEvent {
         +int Id
         +string UserId
@@ -567,9 +499,6 @@ classDiagram
     ApplicationUser "1" --> "*" Goal : sets
     ApplicationUser "1" --> "*" Skill : has
     ApplicationUser "1" --> "*" Certification : earns
-    ApplicationUser "1" --> "*" StudentConnection : requests
-    ApplicationUser "1" --> "*" Message : sends
-    ApplicationUser "1" --> "*" NetworkingContact : tracks
 ```
 
 
@@ -735,9 +664,6 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Goal> Goals { get; set; }
     public DbSet<Skill> Skills { get; set; }
     public DbSet<Certification> Certifications { get; set; }
-    public DbSet<StudentConnection> StudentConnections { get; set; }
-    public DbSet<Message> Messages { get; set; }
-    public DbSet<NetworkingContact> NetworkingContacts { get; set; }
 }
 ```
 
@@ -762,12 +688,6 @@ PursuitHQ.API
 5. **NotificationPreference, Notification** — email reminders (needs `IEmailService` and an external scheduler; see Architecture.md).
 6. **JobApplication** — Internship Tracker, then job search integration.
 7. **Goal, Skill, Certification** — Career Growth (Sprint 5, 7).
-8. **StudentConnection, Message** — Networking Hub (Sprint 9).
-9. **Resume + ResumeAiService** — AI resume builder (Sprint 8+).
-10. **StudySession + StudyPlannerAiService** — AI study planner (Sprint 8+).
-11. **FlashcardDeck, Flashcard, Quiz, QuizQuestion, QuizAttempt, QuizAnswer, StudyGuide** — AI study tools, plus `ITextExtractionService` and `StudyToolAiService`.
-12. **NetworkingContact** — only if you decide to keep it (see below).
-
-## 8. Open Questions
-
-- **NetworkingContact**: keep as a separate feature for tracking external professional contacts, or drop it and focus only on in-app student-to-student networking (`StudentConnection` / `Message`)?
+8. **Resume + ResumeAiService** — AI resume builder (Sprint 8+).
+9. **StudySession + StudyPlannerAiService** — AI study planner (Sprint 8+).
+10. **FlashcardDeck, Flashcard, Quiz, QuizQuestion, QuizAttempt, QuizAnswer, StudyGuide** — AI study tools, plus `ITextExtractionService` and `StudyToolAiService`.

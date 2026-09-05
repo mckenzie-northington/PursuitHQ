@@ -248,30 +248,7 @@ Create and refine resumes, with AI feedback.
 
 ---
 
-## 9. Networking Hub — *v1.1 (peer) / Later (external contacts)*
-
-**Behavior — student-to-student (v1.1)**
-- Search students by name, major, or shared course.
-- Send a connection request; recipient accepts or declines.
-- View connections list and pending requests.
-- Direct message a connected student; conversation view with read status.
-- Block or report a user.
-
-**Behavior — external contacts (Later)**
-- Track recruiters, alumni, and other professional contacts with company, role, LinkedIn URL, last contact date, and notes.
-- Flag contacts not followed up with in 30+ days.
-
-**Acceptance criteria**
-- Messaging a non-connected user is rejected.
-- A user cannot read a conversation they are not part of.
-- Blocking prevents further messages and connection requests from that user.
-- Profile search exposes only public profile fields, never email or private records.
-
-**Entities:** `StudentConnection`, `Message`, `NetworkingContact`
-
----
-
-## 10. Analytics — *Later*
+## 9. Analytics — *Later*
 
 **Behavior**
 - Application funnel chart (applied → interview → offer, with conversion rates).
@@ -303,6 +280,4 @@ Create and refine resumes, with AI feedback.
 | Study Planner (AI) | v1.1 |
 | Resume Builder (AI) | v1.1 |
 | Career Growth | v1.1 |
-| Networking — peer connections & messaging | v1.1 |
-| Networking — external contacts | Later |
 | Analytics | Later |

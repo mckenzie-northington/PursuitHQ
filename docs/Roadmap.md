@@ -109,17 +109,9 @@ Phases are ordered by dependency: authentication comes first because nearly ever
 - [ ] Apply deep-links to the original posting
 - [ ] Save-to-tracker creating a `JobApplication` with source URL
 
-## Phase 11 — Networking
-
-- [ ] Student search and public profiles
-- [ ] Connection requests: send, accept, decline, remove
-- [ ] Direct messaging with read status
-- [ ] Block and report
-
-## Phase 12 — Analytics & polish
+## Phase 11 — Analytics & polish
 
 - [ ] Analytics endpoints and charts
-- [ ] External networking contacts (if kept)
 - [ ] Deadline reminder emails
 - [ ] Accessibility and mobile pass
 

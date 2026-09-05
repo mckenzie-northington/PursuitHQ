@@ -1,6 +1,6 @@
 # PursuitHQ — Security & Privacy
 
-Because PursuitHQ holds students' coursework, resumes, job applications, private notes, and direct messages, security is a feature requirement, not an afterthought.
+Because PursuitHQ holds students' coursework, resumes, job applications, and private notes, security is a feature requirement, not an afterthought.
 
 ## 1. Authentication
 
@@ -43,8 +43,6 @@ var course = await _db.Courses.FindAsync(id);
 **Rules**
 - Requesting a record you don't own returns `404`, not `403`, so existence isn't leaked.
 - Nested resources verify ownership of the parent too (a material request checks that the course belongs to the caller).
-- Messages are readable only by their sender and receiver.
-- Student search returns public profile fields only — never email, records, or materials.
 
 ## 3. File Upload Security
 
@@ -70,7 +68,7 @@ Uploads are the highest-risk surface in the app.
 - **SQL injection** is prevented by EF Core parameterization; no string-concatenated SQL.
 - **Rate limiting:** general endpoints 100 requests/minute per user; AI endpoints capped per day per user (config: `Ai:RequestsPerUserPerDay`) to bound both abuse and cost.
 - **Error responses** never include stack traces or SQL in production; the developer exception page is development-only.
-- **Logging** never records passwords, tokens, resume content, note content, or message bodies.
+- **Logging** never records passwords, tokens, resume content, or note content.
 
 ## 5. Secrets Management
 
@@ -85,7 +83,6 @@ The `.gitignore` already excludes `*.user` and environment files. If a secret is
 ## 6. Privacy & Data Handling
 
 - A student's materials, notes, resumes, applications, and goals are visible only to them.
-- Messages are visible only to the two participants.
 - **Account deletion** removes all owned rows and all stored files, not just the login record.
 - **Data export** returns the user's records as JSON on request.
 - AI prompts contain only the requesting user's own data, and no data from other users is ever included in a prompt.

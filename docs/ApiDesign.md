@@ -19,6 +19,7 @@
 | 409 | Conflict (e.g. duplicate email, duplicate connection request) |
 | 413 | Upload exceeds size limit |
 | 415 | Unsupported file type |
+| 422 | File could not be processed (e.g. a scanned PDF with no extractable text) |
 | 429 | Rate limit exceeded (AI endpoints) |
 | 500 | Unhandled server error |
 
@@ -49,7 +50,7 @@ List endpoints accept `?page=1&pageSize=25` (default 25, max 100) and return:
 | Method | Route | Description |
 |---|---|---|
 | POST | `/api/auth/register` *(public)* | Create account. Body: firstName, lastName, email, password. Returns JWT. |
-| POST | `/api/auth/login` *(public)* | Authenticate. Body: email, password. Returns JWT + user profile. |
+| POST | `/api/auth/login` *(public)* | Authenticate. Body: email, password. Returns JWT + user profile. Counts failed attempts; returns 423 Locked after 5 failures in 15 minutes. |
 | POST | `/api/auth/forgot-password` *(public)* | Send reset email. Body: email. Always returns 200 (no account enumeration). |
 | POST | `/api/auth/reset-password` *(public)* | Body: email, token, newPassword. |
 | GET | `/api/auth/me` | Current user's profile. |
@@ -205,6 +206,82 @@ List endpoints accept `?page=1&pageSize=25` (default 25, max 100) and return:
 |---|---|---|
 | GET / POST | `/api/contacts` | List / create external professional contacts. |
 | PUT / DELETE | `/api/contacts/{id}` | Update / delete. |
+
+---
+
+## Calendar events — `/api/calendar-events`
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/calendar-events` | List. Filters: `?from=`, `?to=`, `?eventType=`. |
+| POST | `/api/calendar-events` | Body: title, startDateTime, endDateTime, eventType, location?, isRecurring, recurrenceRule?. |
+| PUT | `/api/calendar-events/{id}` | Update. |
+| DELETE | `/api/calendar-events/{id}` | Delete. |
+| GET | `/api/calendar` | Unified calendar feed for a date range: class meetings, assignment due dates, study sessions, and calendar events in one response. |
+
+---
+
+## Notifications — `/api/notifications`
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/notifications/preferences` | Current student's reminder settings. |
+| PUT | `/api/notifications/preferences` | Update: emailEnabled, reminder windows, digest settings, timeZone. |
+| GET | `/api/notifications/history` | Recently sent notifications. Paginated. |
+| POST | `/api/jobs/run` *(scheduler only)* | Triggered by an external cron every 15 minutes. Requires the `X-Scheduler-Secret` header; 401 otherwise. Processes due reminders and digests for all users. Idempotent. |
+
+---
+
+## AI study tools
+
+### Flashcards
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/flashcard-decks` | List decks. Filters: `?courseId=`. |
+| GET | `/api/flashcard-decks/{id}` | Deck with all cards. |
+| POST | `/api/flashcard-decks/generate` | **AI.** Body: sourceMaterialId or sourceNoteId, cardCount. Returns generated cards; saves nothing. Rate-limited. |
+| POST | `/api/flashcard-decks` | Save a deck (generated-and-edited, or hand-made). |
+| PUT | `/api/flashcard-decks/{id}` | Rename deck, edit/add/remove cards. |
+| POST | `/api/flashcard-decks/{id}/cards/{cardId}/review` | Body: wasCorrect. Updates review counters. |
+| DELETE | `/api/flashcard-decks/{id}` | Delete. |
+
+### Quizzes
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/quizzes` | List quizzes. Filters: `?courseId=`. |
+| GET | `/api/quizzes/{id}` | Quiz with questions (correct answers withheld until an attempt is submitted). |
+| POST | `/api/quizzes/generate` | **AI.** Body: sourceMaterialId or sourceNoteId, questionCount, questionTypes. Returns questions; saves nothing. Rate-limited. |
+| POST | `/api/quizzes` | Save a quiz. |
+| PUT | `/api/quizzes/{id}` | Edit questions. |
+| DELETE | `/api/quizzes/{id}` | Delete. |
+| POST | `/api/quizzes/{id}/attempts` | Start an attempt. |
+| PUT | `/api/quizzes/{id}/attempts/{attemptId}` | Submit answers. Returns score, per-question correctness, and explanations. |
+| GET | `/api/quizzes/{id}/attempts` | Past attempts with scores. |
+
+### Study guides
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/study-guides` | List. Filters: `?courseId=`. |
+| GET | `/api/study-guides/{id}` | Full content. |
+| POST | `/api/study-guides/generate` | **AI.** Body: sourceMaterialId or sourceNoteId. Returns generated content; saves nothing. Rate-limited. |
+| POST | `/api/study-guides` | Save. |
+| PUT | `/api/study-guides/{id}` | Edit. |
+| DELETE | `/api/study-guides/{id}` | Delete. |
+
+---
+
+## Job search — `/api/jobs`
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/jobs/search` | `?query=`, `?location=`, `?type=`, `?page=`. Proxies the external job board; results are cached briefly. |
+| GET | `/api/jobs/match` | `?resumeId=`. Extracts skills from the resume, searches with them, and ranks results by overlap. |
+| POST | `/api/jobs/save` | Body: externalJobId, company, role, sourceUrl, type. Creates a `JobApplication` with status `Saved` and `source = Search`. 409 if that posting is already saved. |
+
+Search results include `sourceUrl`; the frontend's Apply button opens it in a new tab. The API never submits applications.
 
 ---
 

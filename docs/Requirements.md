@@ -26,14 +26,18 @@ Out of scope for now: professors, advisors, and university administrators. The a
 - Assignments with due dates, status, and grades
 - Upload and organize study materials per course (folders, files, typed notes)
 - Internship/job application tracker with status pipeline
+- Non-class calendar activities (work, clubs, appointments)
+- Email reminders for assignments and schedule, configurable per student
 - Dashboard summarizing what's due and what's pending
 - Every student sees only their own data
 
 ### 3.2 Version 1.1
 
 - Goals, skills, and certifications tracking
-- Resume builder with AI review
+- Resume builder with AI review and format checking
+- AI study tools: flashcards, practice quizzes, and study guides generated from uploaded materials
 - AI study planner that suggests study sessions
+- Internship/job search with resume matching
 - Student-to-student connections and direct messaging
 
 ### 3.3 Later / stretch
@@ -110,6 +114,14 @@ Out of scope for now: professors, advisors, and university administrators. The a
 | FR-10 | The system shall deliver direct messages between connected users and track read status. |
 | FR-11 | The system shall allow a user to export or delete all of their data. |
 | FR-12 | The system shall return consistent, structured error responses for all failures. |
+| FR-13 | The system shall lock an account for 15 minutes after 5 failed login attempts within 15 minutes. |
+| FR-14 | The system shall let a student record non-class activities on their calendar, including recurring ones. |
+| FR-15 | The system shall email reminders for upcoming assignments and events according to each student's saved preferences and time zone, and shall not send the same reminder twice. |
+| FR-16 | The system shall let a student disable all email notifications. |
+| FR-17 | The system shall extract text from uploaded PDF, DOCX, and PPTX files and generate flashcards, practice quizzes, and study guides from it. |
+| FR-18 | The system shall record quiz attempts and scores, and allow retaking a quiz. |
+| FR-19 | The system shall let a student search internships and jobs from an external job board, rank them against their resume, and link out to the original posting to apply. |
+| FR-20 | The system shall never submit a job application on a student's behalf or store employer-site credentials. |
 
 ## 6. Non-Functional Requirements
 

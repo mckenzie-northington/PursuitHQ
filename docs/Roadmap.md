@@ -34,6 +34,16 @@ Phases are ordered by dependency: authentication comes first because nearly ever
 - [ ] `AssignmentsController` with filters
 - [ ] Ownership checks verified on every endpoint
 
+## Phase 3a — Calendar events & email reminders
+
+- [ ] `CalendarEvent` CRUD for non-class activities
+- [ ] `NotificationPreference` created with defaults at registration; settings page
+- [ ] `IEmailService` with Resend; verified sending domain
+- [ ] `NotificationService` with duplicate-safe sending via `Notification` records
+- [ ] Secured `/api/jobs/run` endpoint + external cron every 15 minutes
+- [ ] Assignment reminders, event reminders, daily and weekly digests
+- [ ] Time-zone-correct delivery verified
+
 ## Phase 4 — Study materials
 
 - [ ] `IFileStorageService` + `LocalFileStorageService`
@@ -75,11 +85,26 @@ Phases are ordered by dependency: authentication comes first because nearly ever
 
 ## Phase 10 — AI features
 
-- [ ] `ResumeAiService` and resume CRUD + review endpoint
+- [ ] AI provider chosen, key provisioned, billing cap set
+- [ ] Per-user rate limiting on every AI endpoint
+- [ ] `ResumeAiService`: content suggestions + ATS format check
 - [ ] Resume editor UI with suggestion accept/dismiss
 - [ ] `StudyPlannerAiService` and study session endpoints
 - [ ] Study planner UI with generated-plan review
-- [ ] Rate limiting and graceful failure on both
+- [ ] `ITextExtractionService` for PDF, DOCX, PPTX
+- [ ] `StudyToolAiService`: flashcards, quizzes, study guides
+- [ ] Flashcard review mode and quiz-taking UI with scored attempts
+- [ ] Chunking/truncation for large documents, with the user told what was used
+- [ ] Graceful failure everywhere: no partial decks, quizzes, or edits
+
+## Phase 10a — Internship & job search
+
+- [ ] Job-board API account and credentials
+- [ ] `IJobSearchService` with short-lived response caching
+- [ ] Search UI: keyword, location, type filters
+- [ ] "Match my resume" keyword extraction and ranking
+- [ ] Apply deep-links to the original posting
+- [ ] Save-to-tracker creating a `JobApplication` with source URL
 
 ## Phase 11 — Networking
 

@@ -11,16 +11,58 @@ This covers what it takes to run PursuitHQ somewhere other people can actually u
 
 A staging environment is optional early on; add one before the first release that has real users on it.
 
-## 2. Hosting Options
+## 2. Hosting — the free plan
 
-| Piece | Recommended | Alternatives |
+**Goal: $0/month.** This is achievable for everything except AI, with one real tradeoff. Verified September 2026 — free tiers change, so re-check before launch.
+
+### The all-free stack
+
+| Piece | Service | Free allowance | Catch |
+|---|---|---|---|
+| Frontend | **Vercel Hobby** | Unlimited personal projects, custom domain, HTTPS | Non-commercial use only |
+| Database | **Neon Free** | 0.5 GB storage, 100 compute-hours/month, 10 branches | Scales to zero after 5 min idle (first query wakes it, ~1s). Permanent plan, not a trial |
+| Backend API | **Render Free web service** | 512 MB RAM, 750 instance-hours/month | **Spins down after 15 minutes of no traffic; the next request waits ~1 minute** |
+| Email | **Resend Free** | 3,000 emails/month, 100/day | Enough for reminders at small scale |
+| CI/CD | **GitHub Actions** | 2,000 minutes/month on free accounts | — |
+| File storage | Render disk is ephemeral on free | — | Use Cloudflare R2 (10 GB free, no egress fees) or Supabase Storage (1 GB free) |
+
+**Total: $0/month**, excluding AI.
+
+### The one real problem: cold starts
+
+Render's free web service sleeps after 15 minutes idle, and the next visitor waits roughly a minute for it to wake. For a public app that's a bad first impression.
+
+Two ways around it, both free:
+
+1. **Keep it warm.** A free cron service (cron-job.org, UptimeRobot) pings `/health` every 10 minutes. A month is ~730 hours and the free allowance is 750 instance-hours, so an always-on service *just* fits — with no margin. Watch the hours.
+2. **Accept it.** Fine while you're the main user and during development.
+
+### Important: do NOT use Render's free PostgreSQL
+
+**Free Render Postgres databases are deleted 30 days after creation** (with a 14-day grace period to upgrade). Neon's free plan is permanent. Use Render for the API and Neon for the database.
+
+### What is not free: AI
+
+LLM APIs bill per request, and PursuitHQ's AI features (resume review, study plans, flashcard/quiz/study-guide generation) are the expensive kind — study-tool generation sends whole documents as input.
+
+Cost control, in order of importance:
+- Per-user daily caps on AI endpoints (`Ai:RequestsPerUserPerDay`)
+- Truncate or chunk uploads before sending; never send a 200-page PDF whole
+- Cache generated output — regenerate only when the student asks
+- Use a smaller/cheaper model for flashcards and quizzes; save the stronger model for resume review
+- Set a hard billing cap with the provider
+
+Budget a few dollars a month for personal use. Opening AI features to public signups without caps is how a student project produces a surprise bill.
+
+### If free isn't good enough
+
+| Upgrade | Cost | What it fixes |
 |---|---|---|
-| Frontend (Next.js) | Vercel — free tier, built for Next.js, deploys from GitHub | Netlify, Azure Static Web Apps |
-| Backend (.NET API) | Azure App Service — first-class .NET support | Render, Railway, Fly.io, AWS App Runner |
-| Database | Neon or Supabase (managed Postgres, free tier) | Azure Database for PostgreSQL, Railway Postgres |
-| File storage | Azure Blob Storage | AWS S3, Cloudflare R2 |
+| Render Starter | ~$7/month | No spin-down, no cold starts — the single highest-value upgrade |
+| Neon Launch | ~$19/month | More storage and compute when 0.5 GB gets tight |
+| **Azure for Students** | **$100 credit/year, no credit card** | You qualify as a full-time student: $100/year in credit, renewable annually while enrolled, plus 65+ always-free services. Also check the GitHub Student Developer Pack for additional hosting credits |
 
-Rough cost at low usage: frontend free, database free tier, backend ~$0–15/month, storage under $1/month, plus AI API usage (the main variable — hence the per-user rate limit).
+Recommended path: start entirely free, and if cold starts become annoying once other people are using it, $7/month for Render Starter is the one upgrade worth making first.
 
 ## 3. Environment Variables
 
@@ -40,6 +82,12 @@ Set these on the host; never commit them.
 | `Ai__ApiKey` | LLM provider key |
 | `Ai__Model` | Model identifier |
 | `Ai__RequestsPerUserPerDay` | `20` |
+| `Email__Provider` | `Resend` |
+| `Email__ApiKey` | Resend API key |
+| `Email__FromAddress` | `reminders@yourdomain.com` |
+| `JobSearch__Provider` | `Adzuna` |
+| `JobSearch__AppId` / `JobSearch__AppKey` | Job-board API credentials |
+| `Jobs__SchedulerSecret` | Shared secret the external cron sends to trigger reminder jobs |
 | `Cors__AllowedOrigins` | `https://pursuithq.vercel.app` |
 | `ASPNETCORE_ENVIRONMENT` | `Production` |
 

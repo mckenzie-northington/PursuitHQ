@@ -17,7 +17,7 @@ The full plan for PursuitHQ — what it does, how it's built, and what it takes 
 
 ## Quick summary
 
-PursuitHQ is a student success platform: courses and calendar, assignments, per-course study materials (files, folders, and typed notes), an AI study planner, an internship and job application tracker, an AI-assisted resume builder, goals/skills/certifications, and student-to-student networking with messaging.
+PursuitHQ is a student success platform: courses and a calendar covering classes and other activities, assignments, per-course study materials (files, folders, and typed notes), AI study tools that turn those materials into flashcards, practice quizzes, and study guides, an AI study planner, email reminders for deadlines and schedules, internship and job search plus application tracking, an AI-assisted resume builder, goals/skills/certifications, and student-to-student networking with messaging.
 
 **Stack:** ASP.NET Core Web API on .NET 10 · Entity Framework Core · PostgreSQL · Next.js · Tailwind CSS
 
@@ -25,9 +25,11 @@ PursuitHQ is a student success platform: courses and calendar, assignments, per-
 
 These are recorded so they don't get lost. Update this list as they're settled.
 
-1. **External networking contacts** — keep `NetworkingContact` for tracking recruiters and alumni alongside student-to-student networking, or drop it? *(Currently: planned for the Later phase.)*
-2. **AI provider** — which LLM API to use for resume review and study planning, and what the monthly spend cap should be.
-3. **Email delivery** — which provider sends password resets and (later) deadline reminders.
+1. **AI provider and budget** — which LLM API powers resume review, study planning, and study-tool generation, and what the hard monthly spend cap is. This is the only part of the stack that cannot be free; study-tool generation sends whole documents and is the main cost driver. See the cost-control rules in `Deployment.md`.
+2. **Job-board API** — Adzuna is the leading candidate (free app id and key, documented API). LinkedIn and Indeed do not offer open job-search APIs and must not be scraped.
+3. **External networking contacts** — keep `NetworkingContact` for recruiters and alumni alongside student-to-student networking, or drop it? *(Currently: planned for the Later phase.)*
+4. **Email sending domain** — Resend's free tier covers the volume; a custom sending domain needs DNS records on a domain you control.
+5. **Cold starts** — accept Render free's ~1 minute wake-up, keep the instance warm with the reminder cron, or pay ~$7/month once real users are on it.
 
 ## Keeping these current
 

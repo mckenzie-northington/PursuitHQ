@@ -64,7 +64,7 @@ PursuitHQ.API
 ├── DTOs             Request/response shapes, one folder per feature
 ├── Services         IFileStorageService, LocalFileStorageService,
 │                    ITextExtractionService, IEmailService, NotificationService,
-│                    IJobSearchService, ResumeAiService,
+│                    IAiService, GeminiAiService, IJobSearchService, ResumeAiService,
 │                    StudyPlannerAiService, StudyToolAiService
 ├── Data             ApplicationDbContext, seed data
 ├── Migrations       EF Core migrations (generated)
@@ -193,6 +193,86 @@ public interface IJobSearchService
 - Responses are cached briefly (per query, a few minutes) to stay inside the provider's free quota.
 - Applying is always a deep link out to the original posting. PursuitHQ never submits an application on a student's behalf and never stores employer-site credentials.
 
+## 5d. AI Provider — Google Gemini
+
+**Decision:** Google Gemini, accessed through an `IAiService` interface. Gemini's Flash models have a genuinely free tier, which lets every AI feature be built and tested at no cost.
+
+### The interface
+
+Every AI feature goes through one interface, so the provider can be swapped without touching a feature:
+
+```csharp
+public interface IAiService
+{
+    Task<string> CompleteAsync(string prompt, AiOptions options, CancellationToken ct = default);
+    Task<T> CompleteJsonAsync<T>(string prompt, object responseSchema, AiOptions options, CancellationToken ct = default);
+}
+```
+
+Implementations: `GeminiAiService` (now), `AzureOpenAiService` (production upgrade path), `OllamaAiService` (optional, fully local development).
+
+`ResumeAiService`, `StudyPlannerAiService`, and `StudyToolAiService` depend on `IAiService` — never on Gemini directly. No feature code contains a provider name, model id, or HTTP call.
+
+### Calling Gemini
+
+Gemini is a REST API, so `HttpClient` is enough — no third-party SDK required. The key travels in a header, never in the URL (query-string keys leak into logs and browser history):
+
+```
+POST https://generativelanguage.googleapis.com/v1beta/interactions
+x-goog-api-key: <key from configuration>
+Content-Type: application/json
+
+{ "model": "gemini-3.8-flash", "input": "..." }
+```
+
+Register `GeminiAiService` with a typed `HttpClient` (`services.AddHttpClient<IAiService, GeminiAiService>()`) so connection pooling, timeouts, and retry policies are handled properly.
+
+### Model choice per task
+
+Model ids change as Google ships new versions — verify against the current model list before wiring these in, and keep them in configuration rather than hard-coded.
+
+| Task | Model class | Why |
+|---|---|---|
+| Flashcard generation | Flash-Lite / Flash | High volume, structured extraction from text — cheap and fast is right |
+| Quiz generation | Flash | Needs slightly better reasoning to write plausible wrong answers |
+| Study guide generation | Flash | Summarization over long input |
+| Resume review | Flash (strongest available) | Quality matters most here; volume is low |
+| Study plan generation | Flash | Short input, simple scheduling reasoning |
+
+### Structured output
+
+Flashcards, quiz questions, and study plans must come back as data, not prose. Gemini supports constraining responses to a JSON schema — use it. Parsing model output with string manipulation or regex is fragile and will break.
+
+```csharp
+var deck = await _ai.CompleteJsonAsync<GeneratedDeck>(
+    prompt,
+    responseSchema: GeneratedDeck.Schema,
+    options: new AiOptions { Model = _config.FlashcardModel, MaxOutputTokens = 4000 });
+```
+
+Always validate what comes back — a well-formed response can still contain a card with an empty answer or a quiz question whose stated correct answer isn't among its options. Reject bad items before showing them to the student.
+
+### Cost and quota control
+
+Free tier or not, these rules apply from day one, because the same code runs on a paid tier later:
+
+- Per-user daily caps on every AI endpoint (`Ai:RequestsPerUserPerDay`).
+- Chunk or truncate extracted text before sending; a long PDF is processed in sections or trimmed, and the student is told what was used.
+- Cache results — a generated deck is stored, never regenerated on page load. Regeneration is always an explicit student action.
+- Timeout every call and handle failure without saving partial output.
+- Handle 429 from Gemini specifically: surface "the AI service is busy, try again in a minute," not a generic 500.
+
+### Privacy: the free tier trade-off
+
+**On Gemini's free tier, Google states that content is used to improve their products. On paid tiers it is not.**
+
+PursuitHQ sends lecture notes, uploaded coursework, and resumes to this API, so this is a real disclosure obligation, not a footnote:
+
+- While the app is in development and you are the only user, this is a non-issue.
+- **Before other people use the AI features**, the privacy policy must state plainly that material submitted to study tools and resume review is sent to Google and may be used to improve their models.
+- Better: move to a paid tier before public signups. Azure OpenAI on the Azure for Students credit, or Gemini's own paid tier, both remove the training clause. This is the main reason `IAiService` exists.
+- Never send one student's content in another student's request. Prompts contain only the requesting user's own data.
+
 ## 6. Frontend Route Map
 
 | Route | Purpose |
@@ -231,7 +311,11 @@ Non-secret values live in `appsettings.json`; secrets come from user-secrets in 
 | `FileStorage:LocalPath` | Folder for local storage |
 | `FileStorage:MaxFileSizeBytes` | Per-file upload cap |
 | `FileStorage:AllowedContentTypes` | Upload allow-list |
-| `Ai:Provider`, `Ai:ApiKey`, `Ai:Model` | LLM configuration |
+| `Ai:Provider` | `Gemini` (or `AzureOpenAi`, `Ollama`) |
+| `Ai:ApiKey` | Gemini API key — server-side only, never in frontend code |
+| `Ai:FlashcardModel`, `Ai:QuizModel`, `Ai:StudyGuideModel`, `Ai:ResumeModel`, `Ai:StudyPlanModel` | Model id per task, so models can be tuned without a redeploy |
+| `Ai:MaxInputTokens` | Truncation threshold for extracted document text |
+| `Ai:TimeoutSeconds` | Per-request timeout |
 | `Ai:RequestsPerUserPerDay` | Rate limit for AI endpoints |
 | `Email:Provider`, `Email:ApiKey`, `Email:FromAddress` | Transactional email sending |
 | `Jobs:SchedulerSecret` | Shared secret required by the reminder job endpoint |

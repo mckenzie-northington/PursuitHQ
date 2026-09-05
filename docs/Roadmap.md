@@ -85,7 +85,10 @@ Phases are ordered by dependency: authentication comes first because nearly ever
 
 ## Phase 10 — AI features
 
-- [ ] AI provider chosen, key provisioned, billing cap set
+- [ ] Gemini API key from Google AI Studio; stored in user-secrets locally
+- [ ] `IAiService` + `GeminiAiService` with a typed HttpClient, timeout, and retry
+- [ ] Structured JSON output with schema validation; reject malformed items
+- [ ] 429 handling surfaced as a readable "service busy" message
 - [ ] Per-user rate limiting on every AI endpoint
 - [ ] `ResumeAiService`: content suggestions + ATS format check
 - [ ] Resume editor UI with suggestion accept/dismiss

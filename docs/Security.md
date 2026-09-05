@@ -89,6 +89,8 @@ The `.gitignore` already excludes `*.user` and environment files. If a secret is
 - **Account deletion** removes all owned rows and all stored files, not just the login record.
 - **Data export** returns the user's records as JSON on request.
 - AI prompts contain only the requesting user's own data, and no data from other users is ever included in a prompt.
+- **AI provider data handling.** PursuitHQ uses Google Gemini. On Gemini's **free** tier, Google uses submitted content to improve their products; on paid tiers it does not. Because study tools and resume review submit students' notes, coursework, and resumes, this must be disclosed in the privacy policy before anyone else uses those features — or the app must move to a paid tier first. Track this as a launch blocker, not a nice-to-have.
+- The AI API key lives only in server configuration. The frontend never calls an AI provider directly; doing so would expose the key to every visitor.
 - If the app is opened to public signups, add: a privacy policy stating what is stored and that content is sent to an AI provider when AI features are used, terms of service, and a contact address.
 
 ## 7. Pre-Launch Security Checklist
@@ -104,3 +106,5 @@ The `.gitignore` already excludes `*.user` and environment files. If a secret is
 - [ ] Account deletion verified to remove both database rows and stored files
 - [ ] Database backups configured and a restore tested at least once
 - [ ] Dependencies updated; `dotnet list package --vulnerable` and `npm audit` clean
+- [ ] AI data-handling disclosed in the privacy policy, or a paid AI tier in use before public signups
+- [ ] AI API key present only in server-side configuration, never in frontend bundles

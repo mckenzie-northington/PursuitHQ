@@ -141,7 +141,8 @@ Out of scope for now: professors, advisors, and university administrators. The a
 
 - Backend is ASP.NET Core Web API on .NET 10 with Entity Framework Core and PostgreSQL.
 - Frontend is Next.js (JavaScript) with Tailwind CSS.
-- AI features call an external LLM API; an API key must be provisioned and billed.
+- AI features call Google Gemini through an `IAiService` abstraction; the free Flash tier covers development, with Azure OpenAI (funded by the Azure for Students credit) as the production upgrade path.
+- Gemini's free tier uses submitted content to improve Google's products; a privacy disclosure or a paid tier is required before third parties use the AI features.
 - Single-region deployment; no multi-tenancy beyond per-user data isolation.
 - Students authenticate with email/password only in v1 (no university SSO).
 

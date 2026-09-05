@@ -41,7 +41,18 @@ Two ways around it, both free:
 
 **Free Render Postgres databases are deleted 30 days after creation** (with a 14-day grace period to upgrade). Neon's free plan is permanent. Use Render for the API and Neon for the database.
 
-### What is not free: AI
+### AI: Gemini free tier
+
+**Decision: Google Gemini.** Its Flash models have a free tier with no credit card required, which covers development and personal use at $0.
+
+Two things to know:
+
+1. **Free tier content is used to improve Google's products.** Paid tiers exclude this. Since study tools and resume review send students' notes and resumes, disclose it in the privacy policy or move to a paid tier before opening the app to other people. See Security.md.
+2. **Free tier quotas are per-project and change.** Check your live limits in Google AI Studio rather than trusting any number written down here.
+
+**Upgrade path when free isn't appropriate anymore:** Azure OpenAI paid by the **Azure for Students** credit ($100/year, renewable while enrolled, no credit card). That removes the training clause without costing you money. Because everything goes through `IAiService`, switching is a configuration change — see Architecture.md.
+
+### What is not free at scale: AI
 
 LLM APIs bill per request, and PursuitHQ's AI features (resume review, study plans, flashcard/quiz/study-guide generation) are the expensive kind — study-tool generation sends whole documents as input.
 
@@ -80,7 +91,9 @@ Set these on the host; never commit them.
 | `FileStorage__ConnectionString` | Blob/S3 credentials |
 | `FileStorage__MaxFileSizeBytes` | `26214400` (25 MB) |
 | `Ai__ApiKey` | LLM provider key |
-| `Ai__Model` | Model identifier |
+| `Ai__Provider` | `Gemini` |
+| `Ai__ApiKey` | Gemini API key from Google AI Studio |
+| `Ai__FlashcardModel` / `Ai__QuizModel` / `Ai__ResumeModel` | Model id per task |
 | `Ai__RequestsPerUserPerDay` | `20` |
 | `Email__Provider` | `Resend` |
 | `Email__ApiKey` | Resend API key |

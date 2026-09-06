@@ -67,14 +67,32 @@ Phases are ordered by dependency: authentication comes first because nearly ever
 - [ ] `ApplicationsController` with status pipeline
 - [ ] Filters and search
 
-## Phase 6 — Frontend foundation
+## Phase 6 — Frontend foundation (partially done — taken early)
 
-- [ ] `npx create-next-app@latest` in `Frontend`
-- [ ] Tailwind configured, base layout and navigation
-- [ ] Auth pages, token handling, protected routes
-- [ ] API client wrapper attaching the bearer token
-- [ ] Courses, assignments, materials, and applications pages
+Built ahead of Phases 4 and 5 so the app could be seen and clicked sooner.
+Lives at `Frontend/pursuithq-web` (lowercase folder name required by npm).
+Next.js 16 · React 19 · Tailwind v4 · App Router · JavaScript.
+
+- [x] `create-next-app` scaffolded
+- [x] Tailwind configured, root layout and top navigation
+- [x] Login and register pages
+- [x] `AuthProvider` holding session state, redirecting unauthenticated users
+- [x] `lib/api.js` API client attaching the bearer token to every request
+- [x] Dashboard with stat cards, upcoming assignments, and course list
+- [x] Courses page: create, edit, delete, plus add/remove meeting times
+- [x] Assignments page: create, delete, filter, click-to-cycle status
+- [ ] Study materials pages — waiting on Phase 4
+- [ ] Job applications page — waiting on Phase 5
 - [ ] Calendar view
+- [ ] Settings page (profile, notification preferences)
+
+**Known hardening item:** the JWT is kept in `localStorage`, which is readable
+by any script on the page. Move to an httpOnly cookie before other students
+use PursuitHQ. See `Security.md`.
+
+**Running it locally needs two terminals:**
+`dotnet run` in `PursuitHQ.API` (port 5051) and `npm run dev` in
+`Frontend/pursuithq-web` (port 3000).
 
 ## Phase 7 — Dashboard
 

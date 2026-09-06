@@ -6,6 +6,7 @@ The full plan for PursuitHQ — what it does, how it's built, and what it takes 
 
 | Document | What's in it |
 |---|---|
+| [START-HERE.md](START-HERE.md) | **Read this first when picking the project back up** — how to start everything, what works, what's next, and fixes for problems already hit |
 | [Requirements.md](Requirements.md) | Purpose, target users, scope, user stories, functional and non-functional requirements, success criteria |
 | [Features.md](Features.md) | Every feature in detail: behavior, acceptance criteria, entities involved, and which release it lands in |
 | [DatabaseDesign.md](DatabaseDesign.md) | Every entity with its fields, the UML class diagram, the DbContext, and the build order |

@@ -10,22 +10,29 @@ Phases are ordered by dependency: authentication comes first because nearly ever
 - [x] Git repository initialized, `.gitignore` in place, pushed to GitHub
 - [x] Documentation set written (this `docs` folder)
 
-## Phase 1 — Data foundation
+## Phase 1 — Data foundation ✅
 
-- [ ] Install `Npgsql.EntityFrameworkCore.PostgreSQL` and EF Core tooling
-- [ ] Create `ApplicationDbContext` and connect to local PostgreSQL
-- [ ] Create every entity class from `DatabaseDesign.md`
-- [ ] First migration and `database update`
-- [ ] Verify tables in pgAdmin
+- [x] Install `Npgsql.EntityFrameworkCore.PostgreSQL` and EF Core tooling
+- [x] Create `ApplicationDbContext` and connect to local PostgreSQL
+- [x] Create every entity class from `DatabaseDesign.md`
+- [x] First migration and `database update`
+- [x] Verify tables in pgAdmin — 30 tables live
 
 ## Phase 2 — Authentication
 
-- [ ] Add ASP.NET Core Identity with `ApplicationUser`
-- [ ] JWT issuing and validation configured in `Program.cs`
-- [ ] `AuthController`: register, login, me, update profile
-- [ ] `[Authorize]` on protected endpoints; Swagger configured to send the bearer token
-- [ ] Password reset flow
-- [ ] Account deletion removing all owned data
+- [x] Add ASP.NET Core Identity with `ApplicationUser`
+- [x] JWT issuing and validation configured in `Program.cs`
+- [x] `AuthController`: register, login, me, update profile, change password, delete account
+- [x] `[Authorize]` on protected endpoints; Swagger configured to send the bearer token
+- [x] Registration verified end to end — hashed password stored in PostgreSQL
+- [x] Lockout policy wired (5 attempts / 15 minutes)
+- [ ] Password reset flow — deferred until email sending exists in Phase 3a
+- [ ] Delete account also removing uploaded files — deferred until file storage exists in Phase 4
+
+**Note on Swashbuckle 10 + Microsoft.OpenApi 2.x:** the JWT Swagger config uses
+`OpenApiSecuritySchemeReference` inside a document lambda, not the older
+`OpenApiReference` pattern, and the namespace is `Microsoft.OpenApi` (not
+`Microsoft.OpenApi.Models`). See `Program.cs` if this ever needs revisiting.
 
 ## Phase 3 — Academic planner
 

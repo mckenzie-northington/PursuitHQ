@@ -1,0 +1,25 @@
+# Normalize line endings so Windows CRLF vs Unix LF never shows up as a diff.
+# Git stores LF internally and checks out CRLF on Windows automatically.
+* text=auto
+
+# Files that must keep CRLF on Windows tooling
+*.sln    text eol=crlf
+*.slnx   text eol=crlf
+*.csproj text eol=crlf
+
+# Treat C# as text with proper diff hunks
+*.cs text diff=csharp
+
+# Binary files git should never try to convert
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.docx binary
+*.pptx binary
+*.xlsx binary
+*.zip  binary
+*.dll  binary
+*.exe  binary

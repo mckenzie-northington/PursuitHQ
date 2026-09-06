@@ -99,18 +99,11 @@ use PursuitHQ. See `Security.md`.
 - [ ] Aggregated `/api/dashboard` endpoint
 - [ ] Dashboard page with widgets and empty states
 
-## Phase 8 — MVP release
-
-- [ ] Deploy API, database, and frontend (see `Deployment.md`)
-- [ ] Complete the security checklist in `Security.md`
-- [ ] End-to-end smoke test in production
-- [ ] **Milestone: another student can register and use the app**
-
-## Phase 9 — Career growth
+## Phase 8 — Career growth
 
 - [ ] Goals, skills, and certifications endpoints and pages
 
-## Phase 10 — AI features
+## Phase 9 — AI features
 
 - [ ] Gemini API key from Google AI Studio; stored in user-secrets locally
 - [ ] `IAiService` + `GeminiAiService` with a typed HttpClient, timeout, and retry
@@ -127,7 +120,7 @@ use PursuitHQ. See `Security.md`.
 - [ ] Chunking/truncation for large documents, with the user told what was used
 - [ ] Graceful failure everywhere: no partial decks, quizzes, or edits
 
-## Phase 10a — Internship & job search
+## Phase 9a — Internship & job search
 
 - [ ] Job-board API account and credentials
 - [ ] `IJobSearchService` with short-lived response caching
@@ -136,11 +129,32 @@ use PursuitHQ. See `Security.md`.
 - [ ] Apply deep-links to the original posting
 - [ ] Save-to-tracker creating a `JobApplication` with source URL
 
-## Phase 11 — Analytics & polish
+## Phase 10 — Analytics & polish
 
 - [ ] Analytics endpoints and charts
 - [ ] Deadline reminder emails
 - [ ] Accessibility and mobile pass
+
+## Phase 11 — Deployment (final phase)
+
+Deliberately last: build and test everything locally first, then ship it once.
+
+- [ ] Neon PostgreSQL project created; production connection string set
+- [ ] Cloud file storage configured (Cloudflare R2 or similar)
+- [ ] API deployed to Render; all environment variables set
+- [ ] Frontend deployed to Vercel; `NEXT_PUBLIC_API_URL` pointed at the live API
+- [ ] CORS updated from `localhost:3000` to the real Vercel origin
+- [ ] Migrations applied to the production database
+- [ ] JWT stored in an httpOnly cookie rather than `localStorage`
+- [ ] Complete the security checklist in `Security.md`
+- [ ] Privacy policy covering AI data handling, if AI features are live
+- [ ] Backups enabled; a restore rehearsed once
+- [ ] End-to-end smoke test against the live URL
+- [ ] **Milestone: another student can register and use PursuitHQ**
+
+Full instructions in `Deployment.md`. Expect environment problems rather than
+code problems: connection strings, CORS, HTTPS, and environment variables are
+where the time goes.
 
 ## Definition of Done (every phase)
 

@@ -34,12 +34,14 @@ Phases are ordered by dependency: authentication comes first because nearly ever
 `OpenApiReference` pattern, and the namespace is `Microsoft.OpenApi` (not
 `Microsoft.OpenApi.Models`). See `Program.cs` if this ever needs revisiting.
 
-## Phase 3 — Academic planner
+## Phase 3 — Academic planner ✅
 
-- [ ] `CoursesController` with full CRUD
-- [ ] `ClassSchedule` endpoints nested under courses
-- [ ] `AssignmentsController` with filters
-- [ ] Ownership checks verified on every endpoint
+- [x] `CoursesController` with full CRUD
+- [x] `ClassSchedule` endpoints nested under courses
+- [x] `AssignmentsController` with filters (course, status, due before/after)
+- [x] Ownership checks verified on every endpoint
+- [x] `ApiControllerBase` established: `[Authorize]` by default, `CurrentUserId`
+      read from the JWT, 404 (not 403) for records the caller does not own
 
 ## Phase 3a — Calendar events & email reminders
 

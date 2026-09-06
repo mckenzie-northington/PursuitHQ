@@ -4,7 +4,79 @@ Your day-to-day guide. Read this first whenever you sit down to work on PursuitH
 
 ---
 
-## 1. Start everything (2 minutes)
+## 1. Which programs to open
+
+You need **three** things open. PostgreSQL is a fourth but you never open it directly.
+
+### VS Code — your main workspace
+
+This is where you will spend most of your time. It handles the frontend code, the
+backend code, and the terminals.
+
+1. Open **VS Code** (Windows key → type `code` → Enter)
+2. Menu bar → **File** → **Open Folder…**
+3. Navigate to and select this folder:
+   `C:\Users\mcken\OneDrive\Desktop\Personal Projects\PursuitHQ`
+   (select the folder itself — do not go inside it)
+4. Click **Select Folder**
+
+You should now see `Backend`, `Frontend`, `docs`, `README.md`, and `start-dev.ps1`
+in the left sidebar.
+
+**Shortcut for next time:** VS Code remembers recent folders. **File** → **Open
+Recent** → PursuitHQ.
+
+Opening the **root** folder matters — it means one window gives you the backend,
+the frontend, the docs, and git all at once.
+
+### Visual Studio Community — optional, for C# work
+
+VS Code can do everything through the terminal, so this is optional. Visual Studio
+has better C# tooling (IntelliSense, debugging, breakpoints), so use it if you want
+those.
+
+1. Open **Visual Studio Community**
+2. Click **Open a project or solution**
+3. Navigate to:
+   `PursuitHQ\Backend\PursuitHQ\PursuitHQ.slnx`
+4. Select that `.slnx` file and click **Open**
+
+**Shortcut for next time:** Visual Studio's start screen lists recent projects —
+PursuitHQ will be at the top.
+
+> If you only want one editor open, use VS Code. Everything today was done through
+> its terminal.
+
+### pgAdmin 4 — to look at the database
+
+Only needed when you want to see the actual data or check that tables exist.
+
+1. Windows key → type `pgadmin` → **pgAdmin 4**
+2. Wait 10–30 seconds — it is slow to start and opens in its own browser-like window
+3. If it asks for a **master password**, that is pgAdmin's own password, not your
+   postgres one
+4. Left panel → expand **Servers** → **PostgreSQL 18** → **Databases** → **pursuithq**
+   → **Schemas** → **public** → **Tables**
+
+### Your browser — to use the site
+
+Chrome or whatever you normally use. The startup script opens it for you.
+
+- Website: `http://localhost:3000`
+- API testing page: `http://localhost:5051/swagger`
+
+### PostgreSQL itself — nothing to open
+
+PostgreSQL runs in the background as a Windows service and starts automatically with
+your computer. You never open it.
+
+If you ever get a database connection error, check that it is running:
+Windows key → type `services` → **Services** → find **postgresql-x64-18** → it should
+say **Running**. If not, right-click → **Start**.
+
+---
+
+## 2. Start everything (2 minutes)
 
 **The easy way:** in File Explorer, right-click **`start-dev.ps1`** in the PursuitHQ
 folder → **Run with PowerShell**.
@@ -32,7 +104,7 @@ is not running, nothing on the site works.
 
 ---
 
-## 2. Where everything lives
+## 3. Where everything lives
 
 | What | Where |
 |---|---|
@@ -45,7 +117,7 @@ is not running, nothing on the site works.
 
 ---
 
-## 3. What already works
+## 4. What already works
 
 - **Accounts** — register, log in, profile, 5-attempt lockout, hashed passwords
 - **Courses** — create, edit, delete, plus weekly meeting times
@@ -57,7 +129,7 @@ Phases 0–3 are complete, and Phase 6 (the website) was built early.
 
 ---
 
-## 4. What you are building next: Phase 4 — Study Materials
+## 5. What you are building next: Phase 4 — Study Materials
 
 Upload files and organize them in folders inside each course, plus typed notes.
 This is also the groundwork for the AI study tools later — flashcards and quizzes
@@ -89,7 +161,7 @@ Key rules from `docs/Security.md` for this feature:
 
 ---
 
-## 5. Saving your work
+## 6. Saving your work
 
 From the **PursuitHQ root folder**:
 
@@ -105,7 +177,7 @@ breaking something.
 
 ---
 
-## 6. Things that went wrong before, and their fixes
+## 7. Things that went wrong before, and their fixes
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -120,7 +192,7 @@ breaking something.
 
 ---
 
-## 7. Known items to deal with eventually
+## 8. Known items to deal with eventually
 
 Tracked in `docs/README.md`, repeated here so they are not forgotten:
 
@@ -137,7 +209,7 @@ Tracked in `docs/README.md`, repeated here so they are not forgotten:
 
 ---
 
-## 8. If you are stuck
+## 9. If you are stuck
 
 Give Claude this context and you will get straight back into it:
 

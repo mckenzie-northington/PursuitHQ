@@ -77,6 +77,20 @@ requires the browser to set its own `Content-Type` boundary. Downloads fetch
 with the bearer token, then trigger a save via a temporary blob URL, since a
 plain link cannot send an Authorization header.
 
+**Added beyond the original scope:**
+
+- [x] Drag-and-drop upload, with a drop overlay
+- [x] Drag a file onto a folder row to move it; a Move dropdown as the
+      keyboard-friendly alternative
+- [x] Inline preview: images and PDFs render from a blob URL, text files show
+      their content
+- [x] Course-wide search across files and notes. Searching deliberately ignores
+      the current folder - the whole point is finding something whose folder you
+      have forgotten. Debounced 300ms
+- [x] `ITextExtractionService` (PDF via PdfPig, DOCX/PPTX/XLSX via the Open XML
+      SDK) powering a text preview for formats no browser can render. PowerPoint
+      extraction includes speaker notes
+
 ## Phase 5 — Internship & job tracker
 
 - [ ] `ApplicationsController` with status pipeline
@@ -129,7 +143,7 @@ use PursuitHQ. See `Security.md`.
 - [ ] Resume editor UI with suggestion accept/dismiss
 - [ ] `StudyPlannerAiService` and study session endpoints
 - [ ] Study planner UI with generated-plan review
-- [ ] `ITextExtractionService` for PDF, DOCX, PPTX
+- [x] `ITextExtractionService` for PDF, DOCX, PPTX — **built early in Phase 4** for file previews; ready to reuse
 - [ ] `StudyToolAiService`: flashcards, quizzes, study guides
 - [ ] Flashcard review mode and quiz-taking UI with scored attempts
 - [ ] Chunking/truncation for large documents, with the user told what was used

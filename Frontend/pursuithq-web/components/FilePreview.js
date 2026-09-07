@@ -16,6 +16,7 @@ import { materials as materialsApi } from "@/lib/api";
 export default function FilePreview({ courseId, file, onClose, onDownload }) {
   const [url, setUrl] = useState(null);
   const [text, setText] = useState(null);
+  const [meta, setMeta] = useState(null);
   const [status, setStatus] = useState("loading");
 
   const kind = kindOf(file);
@@ -23,6 +24,24 @@ export default function FilePreview({ courseId, file, onClose, onDownload }) {
   useEffect(() => {
     let objectUrl = null;
     let cancelled = false;
+
+    // Office formats have no browser viewer, so ask the server for their text.
+    if (kind === "office") {
+      materialsApi
+        .text(courseId, file.id)
+        .then((result) => {
+          if (cancelled) return;
+          setText(result.text);
+          setMeta(result);
+          setStatus("ready");
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setMeta({ message: err.message });
+          setStatus("notext");
+        });
+      return;
+    }
 
     if (kind === "none") {
       setStatus("unsupported");
@@ -110,6 +129,18 @@ export default function FilePreview({ courseId, file, onClose, onDownload }) {
             </div>
           )}
 
+          {status === "notext" && (
+            <div className="flex h-64 flex-col items-center justify-center gap-2 px-6 text-center">
+              <p className="text-3xl">{iconFor(file.fileName)}</p>
+              <p className="max-w-md text-sm text-slate-700">
+                {meta?.message || "No readable text could be extracted from this file."}
+              </p>
+              <button onClick={onDownload} className="mt-1 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+                Download to open
+              </button>
+            </div>
+          )}
+
           {status === "unsupported" && (
             <div className="flex h-64 flex-col items-center justify-center gap-2 px-6 text-center">
               <p className="text-3xl">{iconFor(file.fileName)}</p>
@@ -132,8 +163,23 @@ export default function FilePreview({ courseId, file, onClose, onDownload }) {
             <iframe src={url} title={file.fileName} className="h-[75vh] w-full border-0 bg-white" />
           )}
 
-          {status === "ready" && kind === "text" && (
-            <pre className="whitespace-pre-wrap p-5 font-mono text-sm text-slate-800">{text}</pre>
+          {status === "ready" && (kind === "text" || kind === "office") && (
+            <div>
+              {kind === "office" && meta && (
+                <div className="sticky top-0 border-b border-slate-200 bg-amber-50 px-5 py-2 text-xs text-amber-900">
+                  Text extracted from {meta.sectionCount} {meta.sectionLabel}. Images and
+                  formatting are not shown
+                  {meta.truncated && " — this document was long, so only the first part is shown"}.{" "}
+                  <button onClick={onDownload} className="font-medium underline">
+                    Download the original
+                  </button>{" "}
+                  to see it properly.
+                </div>
+              )}
+              <pre className="whitespace-pre-wrap p-5 font-mono text-sm leading-relaxed text-slate-800">
+                {text}
+              </pre>
+            </div>
           )}
         </div>
       </div>
@@ -147,7 +193,8 @@ function kindOf(file) {
 
   if (type.startsWith("image/") || ["png", "jpg", "jpeg", "gif"].includes(ext)) return "image";
   if (type === "application/pdf" || ext === "pdf") return "pdf";
-  if (type.startsWith("text/") || ["txt", "md", "csv"].includes(ext)) return "text";
+  if (type.startsWith("text/") || ["txt", "md"].includes(ext)) return "text";
+  if (["docx", "pptx", "xlsx", "csv"].includes(ext)) return "office";
   return "none";
 }
 

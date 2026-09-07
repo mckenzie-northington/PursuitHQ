@@ -240,6 +240,8 @@ export const materials = {
   download: (courseId, id, fileName) =>
     download(`/api/courses/${courseId}/materials/${id}/download`, fileName),
   preview: (courseId, id) => fetchBlob(`/api/courses/${courseId}/materials/${id}/download`),
+  /** Extracted text, for file types the browser cannot render. */
+  text: (courseId, id) => api.get(`/api/courses/${courseId}/materials/${id}/text`),
   move: (courseId, material, folderId) =>
     api.put(`/api/courses/${courseId}/materials/${material.id}`, {
       fileName: material.fileName,

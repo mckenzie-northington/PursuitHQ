@@ -85,6 +85,10 @@ builder.Services.Configure<FileStorageOptions>(
     builder.Configuration.GetSection(FileStorageOptions.SectionName));
 builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
 
+// Pulls text out of PDF, DOCX, PPTX, and XLSX uploads. Powers the text
+// preview now, and the AI study tools later.
+builder.Services.AddScoped<ITextExtractionService, TextExtractionService>();
+
 // ---------------------------------------------------------------------------
 // Controllers and Swagger
 // ---------------------------------------------------------------------------

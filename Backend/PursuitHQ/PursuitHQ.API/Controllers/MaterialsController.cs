@@ -15,15 +15,18 @@ namespace PursuitHQ.API.Controllers
     {
         private readonly ApplicationDbContext _db;
         private readonly IFileStorageService _storage;
+        private readonly ITextExtractionService _textExtraction;
         private readonly FileStorageOptions _options;
 
         public MaterialsController(
             ApplicationDbContext db,
             IFileStorageService storage,
+            ITextExtractionService textExtraction,
             IOptions<FileStorageOptions> options)
         {
             _db = db;
             _storage = storage;
+            _textExtraction = textExtraction;
             _options = options.Value;
         }
 
@@ -173,6 +176,67 @@ namespace PursuitHQ.API.Controllers
                     "FileMissing", "The stored file could not be found."));
             }
         }
+
+        /// <summary>
+        /// Extracted text for file types the browser cannot render (Word,
+        /// PowerPoint, Excel), and for PDFs when text is wanted rather than the
+        /// rendered page. Extraction happens on demand, not at upload time.
+        /// </summary>
+        [HttpGet("{id:int}/text")]
+        public async Task<ActionResult<TextPreviewDto>> GetTextPreview(
+            int courseId, int id, CancellationToken ct)
+        {
+            if (!await OwnsCourseAsync(courseId)) return NotFound(CourseNotFound());
+
+            var material = await _db.StudyMaterials
+                .FirstOrDefaultAsync(m => m.Id == id && m.CourseId == courseId && m.UserId == CurrentUserId, ct);
+
+            if (material is null) return NotFound(MaterialNotFound());
+
+            if (!_textExtraction.CanExtract(material.FileName, material.ContentType))
+            {
+                return StatusCode(422, new ApiErrorDto(
+                    "NoTextAvailable", "Text cannot be extracted from this file type."));
+            }
+
+            try
+            {
+                await using var stream = await _storage.OpenAsync(material.StoredPath, ct);
+                var result = await _textExtraction.ExtractAsync(
+                    stream, material.FileName, material.ContentType, ct: ct);
+
+                if (result.IsEmpty)
+                {
+                    // Scanned PDFs and image-only slides have no text layer.
+                    return StatusCode(422, new ApiErrorDto(
+                        "NoTextFound",
+                        "No readable text was found. This can happen with scanned documents or slides made entirely of images."));
+                }
+
+                return Ok(new TextPreviewDto
+                {
+                    FileName = material.FileName,
+                    Text = result.Text,
+                    Truncated = result.Truncated,
+                    SectionCount = result.SectionCount,
+                    SectionLabel = SectionLabelFor(material.FileName)
+                });
+            }
+            catch (FileNotFoundException)
+            {
+                return NotFound(new ApiErrorDto("FileMissing", "The stored file could not be found."));
+            }
+        }
+
+        private static string SectionLabelFor(string fileName) =>
+            Path.GetExtension(fileName).ToLowerInvariant() switch
+            {
+                ".pdf" => "pages",
+                ".pptx" => "slides",
+                ".xlsx" => "sheets",
+                ".docx" => "paragraphs",
+                _ => "sections"
+            };
 
         [HttpPut("{id:int}")]
         public async Task<ActionResult<StudyMaterialDto>> UpdateMaterial(

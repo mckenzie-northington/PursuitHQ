@@ -130,14 +130,37 @@ is not running, nothing on the site works.
 - **Accounts** — register, log in, profile, 5-attempt lockout, hashed passwords
 - **Courses** — create, edit, delete, plus weekly meeting times
 - **Assignments** — create, delete, filter, click-to-cycle status, overdue flagging
+- **Study materials** — nested folders, drag-and-drop upload, move files between
+  folders, inline preview (images, PDFs, text, and extracted text from Word /
+  PowerPoint / Excel), typed notes, course-wide search, storage quota
 - **Dashboard** — counts, upcoming assignments, course list
 - **Database** — 30 tables in PostgreSQL, every table modeled and migrated
 
-Phases 0–3 are complete, and Phase 6 (the website) was built early.
+Phases 0–4 are complete, and Phase 6 (the website) was built early.
 
 ---
 
-## 5. What you are building next: Phase 4 — Study Materials
+## 5. What you are building next
+
+Phase 4 is done. Pick whichever appeals - none depends on the others:
+
+**Phase 5 — Internship & job tracker.** The simplest one left: CRUD like
+courses, plus a board-style page grouped by status. Fastest win.
+
+**Phase 3a — Calendar view and email reminders.** The most visible improvement.
+The calendar page merges class times, assignment due dates, study sessions, and
+other activities. The reminder half needs a Resend account and an external cron
+service (see `Architecture.md` §5a).
+
+**Phase 9 — AI study tools.** The interesting one, and the reason Phase 4
+mattered. `ITextExtractionService` already pulls text out of uploads, so
+generating flashcards, quizzes, and study guides from a lecture deck is mostly
+prompt work plus `IAiService`. Needs a Gemini API key from Google AI Studio.
+
+<details>
+<summary>Phase 4 details (completed)</summary>
+
+### Phase 4 — Study Materials
 
 Upload files and organize them in folders inside each course, plus typed notes.
 This is also the groundwork for the AI study tools later — flashcards and quizzes
@@ -166,6 +189,8 @@ Key rules from `docs/Security.md` for this feature:
 - Store files outside `wwwroot` so they can only be reached through an authorized
   download endpoint
 - Verify the course belongs to the signed-in student before anything else
+
+</details>
 
 ---
 

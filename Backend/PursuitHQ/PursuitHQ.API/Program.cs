@@ -78,6 +78,13 @@ builder.Services.AddAuthorization();
 // ---------------------------------------------------------------------------
 builder.Services.AddScoped<ITokenService, TokenService>();
 
+// File storage for study materials. Bound from the "FileStorage" section of
+// appsettings.json. Swapping to cloud storage later means registering a
+// different IFileStorageService here and changing nothing else.
+builder.Services.Configure<FileStorageOptions>(
+    builder.Configuration.GetSection(FileStorageOptions.SectionName));
+builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
+
 // ---------------------------------------------------------------------------
 // Controllers and Swagger
 // ---------------------------------------------------------------------------

@@ -13,3 +13,5 @@ out/
 ## OS
 .DS_Store
 Thumbs.db
+## Uploaded study materials (local file storage)
+Backend/PursuitHQ/PursuitHQ.API/storage/

@@ -99,6 +99,14 @@ cd "C:\Users\mcken\OneDrive\Desktop\Personal Projects\PursuitHQ\Frontend\pursuit
 npm run dev
 ```
 
+**First time on a new machine or after a fresh clone**, the website also needs its
+packages and env file:
+```powershell
+cd C:\\dev\\PursuitHQ\\Frontend\\pursuithq-web
+npm install
+Copy-Item .env.example .env.local
+```
+
 **Both must be running.** The website is just a face on top of the API — if the API
 is not running, nothing on the site works.
 
@@ -185,7 +193,7 @@ breaking something.
 | `dotnet ef: command not found` | PATH not picked up | Fully quit and reopen VS Code (a new terminal is not enough) |
 | Site says "Could not reach the API" | API is not running | Start it in its own terminal |
 | Blank page at localhost:7136 | Wrong port / missing path | Use `http://localhost:5051/swagger` |
-| `Deletion of directory '.git/objects/xx' failed` | OneDrive locking git files | Press **Ctrl+C**. The commit already saved. Consider pausing OneDrive sync |
+| `Unable to create '.git/index.lock': File exists` | A git process died and left a lock | `Remove-Item .git\\index.lock` from the project root, then retry |
 | Swagger shows no endpoints | App rebuilt but not restarted | Stop the app fully (Ctrl+C), then `dotnet run` again |
 | Editor shows red errors but code looks fine | Language server is stale | Ctrl+Shift+P → **Developer: Reload Window**. Trust `dotnet build`, not squiggles |
 | npm command blocked by PowerShell | Execution policy | Already fixed — `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |

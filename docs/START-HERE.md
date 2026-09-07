@@ -16,7 +16,7 @@ backend code, and the terminals.
 1. Open **VS Code** (Windows key → type `code` → Enter)
 2. Menu bar → **File** → **Open Folder…**
 3. Navigate to and select this folder:
-   `C:\dev\PursuitHQ`
+   `C:\Users\mcken\source\repos\PursuitHQ`
    (select the folder itself — do not go inside it)
 4. Click **Select Folder**
 
@@ -89,20 +89,20 @@ your browser. Leave both windows open while you work.
 
 Terminal 1 — the API:
 ```powershell
-cd "C:\dev\PursuitHQ\Backend\PursuitHQ\PursuitHQ.API"
+cd "C:\Users\mcken\source\repos\PursuitHQ\Backend\PursuitHQ\PursuitHQ.API"
 dotnet run
 ```
 
 Terminal 2 — the website:
 ```powershell
-cd "C:\dev\PursuitHQ\Frontend\pursuithq-web"
+cd "C:\Users\mcken\source\repos\PursuitHQ\Frontend\pursuithq-web"
 npm run dev
 ```
 
 **First time on a new machine or after a fresh clone**, the website also needs its
 packages and env file:
 ```powershell
-cd C:\dev\PursuitHQ\Frontend\pursuithq-web
+cd C:\Users\mcken\source\repos\PursuitHQ\Frontend\pursuithq-web
 npm install
 Copy-Item .env.example .env.local
 ```

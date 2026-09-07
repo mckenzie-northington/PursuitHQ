@@ -16,7 +16,7 @@ backend code, and the terminals.
 1. Open **VS Code** (Windows key → type `code` → Enter)
 2. Menu bar → **File** → **Open Folder…**
 3. Navigate to and select this folder:
-   `C:\Users\mcken\OneDrive\Desktop\Personal Projects\PursuitHQ`
+   `C:\dev\PursuitHQ`
    (select the folder itself — do not go inside it)
 4. Click **Select Folder**
 
@@ -89,20 +89,20 @@ your browser. Leave both windows open while you work.
 
 Terminal 1 — the API:
 ```powershell
-cd "C:\Users\mcken\OneDrive\Desktop\Personal Projects\PursuitHQ\Backend\PursuitHQ\PursuitHQ.API"
+cd "C:\dev\PursuitHQ\Backend\PursuitHQ\PursuitHQ.API"
 dotnet run
 ```
 
 Terminal 2 — the website:
 ```powershell
-cd "C:\Users\mcken\OneDrive\Desktop\Personal Projects\PursuitHQ\Frontend\pursuithq-web"
+cd "C:\dev\PursuitHQ\Frontend\pursuithq-web"
 npm run dev
 ```
 
 **First time on a new machine or after a fresh clone**, the website also needs its
 packages and env file:
 ```powershell
-cd C:\\dev\\PursuitHQ\\Frontend\\pursuithq-web
+cd C:\dev\PursuitHQ\Frontend\pursuithq-web
 npm install
 Copy-Item .env.example .env.local
 ```
@@ -206,9 +206,6 @@ Tracked in `docs/README.md`, repeated here so they are not forgotten:
 
 - **The JWT is stored in `localStorage`.** Readable by any script on the page. Move
   to an httpOnly cookie before other students use PursuitHQ.
-- **The project lives inside OneDrive.** OneDrive locks git files and syncs build
-  output. Moving it to something like `C:\dev\PursuitHQ` would remove a recurring
-  annoyance.
 - **Gemini free tier uses your content to improve Google's products.** Fine while you
   are the only user; needs a privacy disclosure or a paid tier before anyone else
   uses the AI features.

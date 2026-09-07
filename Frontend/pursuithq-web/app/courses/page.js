@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { courses as coursesApi } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -212,6 +213,12 @@ export default function CoursesPage() {
               </div>
 
               <div className="flex shrink-0 gap-2">
+                <Link
+                  href={`/courses/${course.id}/materials`}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  Materials
+                </Link>
                 <button onClick={() => startEdit(course)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
                   Edit
                 </button>

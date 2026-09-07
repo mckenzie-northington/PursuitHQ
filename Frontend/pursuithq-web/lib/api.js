@@ -90,6 +90,59 @@ async function request(path, { method = "GET", body } = {}) {
   return data;
 }
 
+/**
+ * Uploads use multipart/form-data, so the browser must set the Content-Type
+ * itself (it has to include the boundary marker). Setting it manually breaks
+ * the upload, which is why this bypasses `request`.
+ */
+async function upload(path, formData) {
+  const headers = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let res;
+  try {
+    res = await fetch(`${API_URL}${path}`, { method: "POST", headers, body: formData });
+  } catch {
+    throw new ApiError("Could not reach the API.", 0);
+  }
+
+  const text = await res.text();
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch { data = null; }
+  }
+
+  if (!res.ok) {
+    throw new ApiError(data?.message || `Upload failed (${res.status})`, res.status, data?.details);
+  }
+
+  return data;
+}
+
+/** Downloads a file through the authorized endpoint and saves it locally. */
+async function download(path, fileName) {
+  const headers = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${API_URL}${path}`, { headers });
+  if (!res.ok) throw new ApiError(`Download failed (${res.status})`, res.status);
+
+  // The response is the file itself, so it becomes a temporary blob URL that a
+  // hidden link "clicks" to trigger the browser's save dialog.
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export const api = {
   get: (path) => request(path),
   post: (path, body) => request(path, { method: "POST", body }),
@@ -129,4 +182,54 @@ export const assignments = {
   create: (data) => api.post("/api/assignments", data),
   update: (id, data) => api.put(`/api/assignments/${id}`, data),
   remove: (id) => api.del(`/api/assignments/${id}`),
+};
+
+export const folders = {
+  list: (courseId, parentId) =>
+    api.get(
+      parentId
+        ? `/api/courses/${courseId}/folders?parentId=${parentId}`
+        : `/api/courses/${courseId}/folders`
+    ),
+  create: (courseId, data) => api.post(`/api/courses/${courseId}/folders`, data),
+  update: (courseId, id, data) => api.put(`/api/courses/${courseId}/folders/${id}`, data),
+  remove: (courseId, id) => api.del(`/api/courses/${courseId}/folders/${id}`),
+};
+
+export const materials = {
+  list: (courseId, folderId, search) => {
+    const q = new URLSearchParams();
+    if (folderId) q.set("folderId", folderId);
+    if (search) q.set("search", search);
+    const qs = q.toString();
+    return api.get(`/api/courses/${courseId}/materials${qs ? `?${qs}` : ""}`);
+  },
+  upload: (courseId, file, folderId, description) => {
+    const form = new FormData();
+    form.append("file", file);
+    // Only append folderId when there is one - sending an empty value would
+    // be read as folder 0, which does not exist.
+    if (folderId) form.append("folderId", folderId);
+    if (description) form.append("description", description);
+    return upload(`/api/courses/${courseId}/materials`, form);
+  },
+  download: (courseId, id, fileName) =>
+    download(`/api/courses/${courseId}/materials/${id}/download`, fileName),
+  update: (courseId, id, data) => api.put(`/api/courses/${courseId}/materials/${id}`, data),
+  remove: (courseId, id) => api.del(`/api/courses/${courseId}/materials/${id}`),
+  usage: () => api.get("/api/storage/usage"),
+};
+
+export const notes = {
+  list: (courseId, folderId, search) => {
+    const q = new URLSearchParams();
+    if (folderId) q.set("folderId", folderId);
+    if (search) q.set("search", search);
+    const qs = q.toString();
+    return api.get(`/api/courses/${courseId}/notes${qs ? `?${qs}` : ""}`);
+  },
+  get: (courseId, id) => api.get(`/api/courses/${courseId}/notes/${id}`),
+  create: (courseId, data) => api.post(`/api/courses/${courseId}/notes`, data),
+  update: (courseId, id, data) => api.put(`/api/courses/${courseId}/notes/${id}`, data),
+  remove: (courseId, id) => api.del(`/api/courses/${courseId}/notes/${id}`),
 };

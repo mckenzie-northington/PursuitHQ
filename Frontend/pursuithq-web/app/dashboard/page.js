@@ -87,7 +87,7 @@ export default function DashboardPage() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {courses.map((c) => (
-              <div key={c.id} className="rounded-xl border border-slate-200 bg-white p-4">
+              <Link key={c.id} href={`/courses/${c.id}/materials`} className="rounded-xl border border-slate-200 bg-white p-4 transition hover:border-slate-300">
                 <div className="flex items-start gap-3">
                   <span
                     className="mt-1 h-3 w-3 shrink-0 rounded-full"
@@ -103,7 +103,7 @@ export default function DashboardPage() {
                     </p>
                   </div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         )}

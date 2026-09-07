@@ -53,14 +53,29 @@ Phases are ordered by dependency: authentication comes first because nearly ever
 - [ ] Assignment reminders, event reminders, daily and weekly digests
 - [ ] Time-zone-correct delivery verified
 
-## Phase 4 — Study materials
+## Phase 4 — Study materials ✅
 
-- [ ] `IFileStorageService` + `LocalFileStorageService`
-- [ ] Folder CRUD with nesting
-- [ ] Upload endpoint with size, type, and quota validation
-- [ ] Authorized download streaming with the original file name
-- [ ] Notes CRUD
-- [ ] Cascade delete removing files from storage, not just rows
+- [x] `IFileStorageService` + `LocalFileStorageService`
+- [x] Folder CRUD with nesting, plus loop prevention when moving a folder
+- [x] Upload endpoint with size, type, and quota validation before anything
+      touches disk
+- [x] Authorized download streaming with the original file name
+- [x] Notes CRUD
+- [x] Folder delete removes descendants and their stored files, not just rows
+- [x] Storage usage endpoint (`GET /api/storage/usage`)
+- [x] Frontend page at `/courses/[id]/materials`: breadcrumb folder
+      navigation, multi-file upload, download, notes editor, storage bar
+
+**Security decisions in this phase:** files are stored with GUID names outside
+`wwwroot`, so a client file name can never reach the filesystem and nothing is
+served statically. Downloads go through an authorized endpoint with
+`Content-Disposition: attachment`. Extension *and* MIME type must both be on the
+allow-list.
+
+**Frontend notes:** uploads bypass the shared API helper because `FormData`
+requires the browser to set its own `Content-Type` boundary. Downloads fetch
+with the bearer token, then trigger a save via a temporary blob URL, since a
+plain link cannot send an Authorization header.
 
 ## Phase 5 — Internship & job tracker
 
@@ -81,7 +96,7 @@ Next.js 16 · React 19 · Tailwind v4 · App Router · JavaScript.
 - [x] Dashboard with stat cards, upcoming assignments, and course list
 - [x] Courses page: create, edit, delete, plus add/remove meeting times
 - [x] Assignments page: create, delete, filter, click-to-cycle status
-- [ ] Study materials pages — waiting on Phase 4
+- [x] Study materials page — folders, uploads, downloads, notes
 - [ ] Job applications page — waiting on Phase 5
 - [ ] Calendar view
 - [ ] Settings page (profile, notification preferences)

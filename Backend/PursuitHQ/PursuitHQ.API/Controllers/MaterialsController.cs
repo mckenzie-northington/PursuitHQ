@@ -36,14 +36,20 @@ namespace PursuitHQ.API.Controllers
             var query = _db.StudyMaterials
                 .Where(m => m.CourseId == courseId && m.UserId == CurrentUserId);
 
-            // No folderId means the course root; an explicit id means that folder.
-            query = folderId.HasValue
-                ? query.Where(m => m.FolderId == folderId)
-                : query.Where(m => m.FolderId == null);
-
             if (!string.IsNullOrWhiteSpace(search))
             {
-                query = query.Where(m => m.FileName.ToLower().Contains(search.ToLower()));
+                // A search looks across the whole course. Restricting it to the
+                // current folder would make it useless for the thing people
+                // actually search for: a file whose folder they have forgotten.
+                var term = search.ToLower();
+                query = query.Where(m => m.FileName.ToLower().Contains(term));
+            }
+            else
+            {
+                // No folderId means the course root; an explicit id means that folder.
+                query = folderId.HasValue
+                    ? query.Where(m => m.FolderId == folderId)
+                    : query.Where(m => m.FolderId == null);
             }
 
             var materials = await query

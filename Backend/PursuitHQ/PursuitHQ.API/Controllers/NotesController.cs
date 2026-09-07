@@ -24,13 +24,20 @@ namespace PursuitHQ.API.Controllers
             var query = _db.Notes
                 .Where(n => n.CourseId == courseId && n.UserId == CurrentUserId);
 
-            query = folderId.HasValue
-                ? query.Where(n => n.FolderId == folderId)
-                : query.Where(n => n.FolderId == null);
-
             if (!string.IsNullOrWhiteSpace(search))
             {
-                query = query.Where(n => n.Title.ToLower().Contains(search.ToLower()));
+                // A search looks across the whole course. Restricting it to the
+                // current folder would make it useless for the thing people
+                // actually search for: a file whose folder they have forgotten.
+                var term = search.ToLower();
+                query = query.Where(n => n.Title.ToLower().Contains(term));
+            }
+            else
+            {
+                // No folderId means the course root; an explicit id means that folder.
+                query = folderId.HasValue
+                    ? query.Where(n => n.FolderId == folderId)
+                    : query.Where(n => n.FolderId == null);
             }
 
             // The list view omits Content - note bodies can be long and are not

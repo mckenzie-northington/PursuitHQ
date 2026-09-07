@@ -21,14 +21,27 @@ namespace PursuitHQ.API.Controllers
             _storage = storage;
         }
 
+        /// <summary>
+        /// Folders in a course. By default returns one level (the course root,
+        /// or the children of parentId). Pass all=true to get every folder in
+        /// the course, which the "move to folder" picker needs.
+        /// </summary>
         [HttpGet]
-        public async Task<ActionResult<List<FolderDto>>> GetFolders(int courseId, [FromQuery] int? parentId)
+        public async Task<ActionResult<List<FolderDto>>> GetFolders(
+            int courseId, [FromQuery] int? parentId, [FromQuery] bool all = false)
         {
             if (!await OwnsCourseAsync(courseId)) return NotFound(CourseNotFound());
 
-            var folders = await _db.MaterialFolders
-                .Where(f => f.CourseId == courseId && f.UserId == CurrentUserId)
-                .Where(f => parentId.HasValue ? f.ParentFolderId == parentId : f.ParentFolderId == null)
+            var query = _db.MaterialFolders
+                .Where(f => f.CourseId == courseId && f.UserId == CurrentUserId);
+
+            if (!all)
+            {
+                query = query.Where(f =>
+                    parentId.HasValue ? f.ParentFolderId == parentId : f.ParentFolderId == null);
+            }
+
+            var folders = await query
                 .OrderBy(f => f.Name)
                 .Select(f => new FolderDto
                 {

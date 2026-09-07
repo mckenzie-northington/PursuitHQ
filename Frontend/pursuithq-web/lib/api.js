@@ -143,6 +143,28 @@ async function download(path, fileName) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Fetches a file with the bearer token and returns a blob plus an object URL,
+ * for showing it in the page instead of downloading it.
+ *
+ * The download endpoint sends Content-Disposition: attachment, but that only
+ * applies to direct navigation - fetching the bytes ourselves and wrapping them
+ * in a blob URL lets an <img> or <iframe> render it.
+ *
+ * Always call URL.revokeObjectURL(url) when done, or the blob stays in memory.
+ */
+async function fetchBlob(path) {
+  const headers = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${API_URL}${path}`, { headers });
+  if (!res.ok) throw new ApiError(`Could not load file (${res.status})`, res.status);
+
+  const blob = await res.blob();
+  return { blob, url: URL.createObjectURL(blob) };
+}
+
 export const api = {
   get: (path) => request(path),
   post: (path, body) => request(path, { method: "POST", body }),
@@ -191,6 +213,8 @@ export const folders = {
         ? `/api/courses/${courseId}/folders?parentId=${parentId}`
         : `/api/courses/${courseId}/folders`
     ),
+  /** Every folder in the course, for the "move to folder" picker. */
+  listAll: (courseId) => api.get(`/api/courses/${courseId}/folders?all=true`),
   create: (courseId, data) => api.post(`/api/courses/${courseId}/folders`, data),
   update: (courseId, id, data) => api.put(`/api/courses/${courseId}/folders/${id}`, data),
   remove: (courseId, id) => api.del(`/api/courses/${courseId}/folders/${id}`),
@@ -215,6 +239,13 @@ export const materials = {
   },
   download: (courseId, id, fileName) =>
     download(`/api/courses/${courseId}/materials/${id}/download`, fileName),
+  preview: (courseId, id) => fetchBlob(`/api/courses/${courseId}/materials/${id}/download`),
+  move: (courseId, material, folderId) =>
+    api.put(`/api/courses/${courseId}/materials/${material.id}`, {
+      fileName: material.fileName,
+      description: material.description ?? null,
+      folderId: folderId ?? null,
+    }),
   update: (courseId, id, data) => api.put(`/api/courses/${courseId}/materials/${id}`, data),
   remove: (courseId, id) => api.del(`/api/courses/${courseId}/materials/${id}`),
   usage: () => api.get("/api/storage/usage"),

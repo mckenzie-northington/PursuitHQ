@@ -3,8 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { courses as coursesApi, folders as foldersApi, materials as materialsApi, notes as notesApi } from "@/lib/api";
+import {
+  courses as coursesApi,
+  folders as foldersApi,
+  materials as materialsApi,
+  notes as notesApi,
+} from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import FilePreview from "@/components/FilePreview";
 
 export default function MaterialsPage() {
   const { id } = useParams();
@@ -15,12 +21,11 @@ export default function MaterialsPage() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
 
-  // Breadcrumb trail. The last entry is the folder currently being viewed;
-  // null id means the course root.
   const [trail, setTrail] = useState([{ id: null, name: "All materials" }]);
   const currentFolderId = trail[trail.length - 1].id;
 
   const [subfolders, setSubfolders] = useState([]);
+  const [allFolders, setAllFolders] = useState([]);
   const [files, setFiles] = useState([]);
   const [noteList, setNoteList] = useState([]);
   const [usage, setUsage] = useState(null);
@@ -30,19 +35,46 @@ export default function MaterialsPage() {
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef(null);
 
+  // Drag state. dragDepth counts enter/leave events, because dragging over a
+  // child element fires dragleave on the parent and would otherwise flicker.
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const [draggedFile, setDraggedFile] = useState(null);
+  const [dropTargetFolder, setDropTargetFolder] = useState(null);
+
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const searching = debouncedSearch.trim().length > 0;
+
+  const [previewing, setPreviewing] = useState(null);
+  const [movingFile, setMovingFile] = useState(null);
+
   const [openNote, setOpenNote] = useState(null);
   const [noteDraft, setNoteDraft] = useState({ title: "", content: "" });
   const [savingNote, setSavingNote] = useState(false);
 
+  // Wait for a pause in typing before querying, so a 10-character search is
+  // one request instead of ten.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const refresh = useCallback(async () => {
     try {
-      const [f, m, n, u] = await Promise.all([
-        foldersApi.list(courseId, currentFolderId),
-        materialsApi.list(courseId, currentFolderId),
-        notesApi.list(courseId, currentFolderId),
+      const term = debouncedSearch.trim();
+
+      const [f, all, m, n, u] = await Promise.all([
+        // While searching, results span the whole course, so the folder
+        // listing for the current level is not shown.
+        term ? Promise.resolve([]) : foldersApi.list(courseId, currentFolderId),
+        foldersApi.listAll(courseId),
+        materialsApi.list(courseId, term ? null : currentFolderId, term || null),
+        notesApi.list(courseId, term ? null : currentFolderId, term || null),
         materialsApi.usage(),
       ]);
       setSubfolders(f);
+      setAllFolders(all);
       setFiles(m);
       setNoteList(n);
       setUsage(u);
@@ -52,7 +84,7 @@ export default function MaterialsPage() {
     } finally {
       setReady(true);
     }
-  }, [courseId, currentFolderId]);
+  }, [courseId, currentFolderId, debouncedSearch]);
 
   useEffect(() => {
     if (loading || !user) return;
@@ -63,6 +95,92 @@ export default function MaterialsPage() {
     if (loading || !user) return;
     refresh();
   }, [loading, user, refresh]);
+
+  // ---------- uploads ----------
+
+  async function uploadFiles(list) {
+    const chosen = Array.from(list || []);
+    if (chosen.length === 0) return;
+
+    setUploading(true);
+    setError("");
+
+    const failures = [];
+    for (const file of chosen) {
+      try {
+        await materialsApi.upload(courseId, file, currentFolderId, null);
+      } catch (err) {
+        failures.push(`${file.name}: ${err.message}`);
+      }
+    }
+
+    setUploading(false);
+    if (failures.length > 0) setError(failures.join(" · "));
+    if (fileInput.current) fileInput.current.value = "";
+    await refresh();
+  }
+
+  // ---------- drag and drop ----------
+
+  function onDragEnter(e) {
+    // Only react to files coming from outside the page, not to a file row
+    // being dragged around inside it.
+    if (draggedFile) return;
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragging(true);
+  }
+
+  function onDragLeave(e) {
+    if (draggedFile) return;
+    e.preventDefault();
+    dragDepth.current -= 1;
+    if (dragDepth.current <= 0) {
+      dragDepth.current = 0;
+      setDragging(false);
+    }
+  }
+
+  function onDragOver(e) {
+    if (draggedFile) return;
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+  }
+
+  async function onDrop(e) {
+    if (draggedFile) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    await uploadFiles(e.dataTransfer.files);
+  }
+
+  async function dropOnFolder(folder) {
+    if (!draggedFile) return;
+    const file = draggedFile;
+    setDraggedFile(null);
+    setDropTargetFolder(null);
+
+    try {
+      await materialsApi.move(courseId, file, folder.id);
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function moveFile(file, folderId) {
+    try {
+      await materialsApi.move(courseId, file, folderId);
+      setMovingFile(null);
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  // ---------- folders, notes ----------
 
   function openFolder(folder) {
     setTrail((t) => [...t, { id: folder.id, name: folder.name }]);
@@ -75,7 +193,6 @@ export default function MaterialsPage() {
   async function createFolder(e) {
     e.preventDefault();
     if (!newFolderName.trim()) return;
-
     try {
       await foldersApi.create(courseId, {
         name: newFolderName.trim(),
@@ -99,27 +216,6 @@ export default function MaterialsPage() {
     }
   }
 
-  async function handleUpload(e) {
-    const chosen = Array.from(e.target.files || []);
-    if (chosen.length === 0) return;
-
-    setUploading(true);
-    setError("");
-
-    // Uploaded one at a time so a single rejected file does not lose the rest.
-    for (const file of chosen) {
-      try {
-        await materialsApi.upload(courseId, file, currentFolderId, null);
-      } catch (err) {
-        setError(`${file.name}: ${err.message}`);
-      }
-    }
-
-    setUploading(false);
-    if (fileInput.current) fileInput.current.value = "";
-    await refresh();
-  }
-
   async function deleteFile(file) {
     if (!confirm(`Delete "${file.fileName}"?`)) return;
     try {
@@ -133,7 +229,6 @@ export default function MaterialsPage() {
   async function saveNote(e) {
     e.preventDefault();
     setSavingNote(true);
-
     try {
       if (openNote === "new") {
         await notesApi.create(courseId, { ...noteDraft, folderId: currentFolderId });
@@ -151,7 +246,6 @@ export default function MaterialsPage() {
 
   async function editNote(note) {
     try {
-      // The list view omits note bodies, so fetch the full note to edit it.
       const full = await notesApi.get(courseId, note.id);
       setOpenNote(full);
       setNoteDraft({ title: full.title, content: full.content });
@@ -177,7 +271,25 @@ export default function MaterialsPage() {
   const isEmpty = subfolders.length === 0 && files.length === 0 && noteList.length === 0;
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
+    <div
+      className="relative mx-auto max-w-5xl px-6 py-10"
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      {/* Drop overlay for files coming from the desktop */}
+      {dragging && (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-indigo-600/10 backdrop-blur-[1px]">
+          <div className="rounded-2xl border-2 border-dashed border-indigo-500 bg-white px-10 py-8 text-center shadow-lg">
+            <p className="text-lg font-semibold text-indigo-700">Drop files to upload</p>
+            <p className="mt-1 text-sm text-slate-600">
+              into {trail[trail.length - 1].name}
+            </p>
+          </div>
+        </div>
+      )}
+
       <Link href="/courses" className="text-sm font-medium text-indigo-600 hover:underline">
         &larr; Courses
       </Link>
@@ -185,7 +297,9 @@ export default function MaterialsPage() {
       <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">{course?.name ?? "Study materials"}</h1>
-          <p className="mt-1 text-sm text-slate-600">Files and notes for this course.</p>
+          <p className="mt-1 text-sm text-slate-600">
+            Drag files in to upload. Drag a file onto a folder to move it.
+          </p>
         </div>
 
         {usage && (
@@ -201,7 +315,6 @@ export default function MaterialsPage() {
         )}
       </div>
 
-      {/* Breadcrumbs */}
       <nav className="mt-6 flex flex-wrap items-center gap-1 text-sm">
         {trail.map((crumb, i) => (
           <span key={`${crumb.id}-${i}`} className="flex items-center gap-1">
@@ -217,7 +330,6 @@ export default function MaterialsPage() {
         ))}
       </nav>
 
-      {/* Actions */}
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           onClick={() => fileInput.current?.click()}
@@ -226,7 +338,13 @@ export default function MaterialsPage() {
         >
           {uploading ? "Uploading..." : "Upload files"}
         </button>
-        <input ref={fileInput} type="file" multiple onChange={handleUpload} className="hidden" />
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          onChange={(e) => uploadFiles(e.target.files)}
+          className="hidden"
+        />
 
         <button
           onClick={() => setShowNewFolder(!showNewFolder)}
@@ -265,13 +383,41 @@ export default function MaterialsPage() {
         </form>
       )}
 
+      <div className="relative mt-5">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search files and notes in this course..."
+          className="w-full rounded-md border border-slate-300 py-2 pl-9 pr-9 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+        />
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+          &#128269;
+        </span>
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 hover:text-slate-700"
+            title="Clear search"
+          >
+            &times;
+          </button>
+        )}
+      </div>
+
+      {searching && (
+        <p className="mt-2 text-sm text-slate-600">
+          {files.length + noteList.length} result{files.length + noteList.length === 1 ? "" : "s"} for
+          &ldquo;{debouncedSearch}&rdquo; across the whole course
+        </p>
+      )}
+
       {error && (
-        <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
+        <div className="mt-4 flex items-start justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <span>{error}</span>
+          <button onClick={() => setError("")} className="shrink-0 font-medium">Dismiss</button>
         </div>
       )}
 
-      {/* Note editor */}
       {openNote && (
         <form onSubmit={saveNote} className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="font-medium">{openNote === "new" ? "New note" : "Edit note"}</h2>
@@ -303,16 +449,52 @@ export default function MaterialsPage() {
         </form>
       )}
 
-      {/* Contents */}
       <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white">
         {isEmpty ? (
-          <div className="px-6 py-12 text-center text-sm text-slate-600">
-            This folder is empty. Upload a file, or create a note.
+          <div className="px-6 py-16 text-center">
+            {searching ? (
+              <>
+                <p className="text-sm text-slate-600">
+                  Nothing matches &ldquo;{debouncedSearch}&rdquo;.
+                </p>
+                <button
+                  onClick={() => setSearch("")}
+                  className="mt-2 text-sm font-medium text-indigo-600 hover:underline"
+                >
+                  Clear search
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-slate-600">This folder is empty.</p>
+                <p className="mt-1 text-sm text-slate-500">Drag files here, or use the buttons above.</p>
+              </>
+            )}
           </div>
         ) : (
           <ul className="divide-y divide-slate-200">
+            {/* Folders - also drop targets for moving files */}
             {subfolders.map((f) => (
-              <li key={`folder-${f.id}`} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-slate-50">
+              <li
+                key={`folder-${f.id}`}
+                onDragOver={(e) => {
+                  if (!draggedFile) return;
+                  e.preventDefault();
+                  setDropTargetFolder(f.id);
+                }}
+                onDragLeave={() => setDropTargetFolder((cur) => (cur === f.id ? null : cur))}
+                onDrop={(e) => {
+                  if (!draggedFile) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  dropOnFolder(f);
+                }}
+                className={`flex items-center justify-between gap-4 px-4 py-3 transition ${
+                  dropTargetFolder === f.id
+                    ? "bg-indigo-50 ring-2 ring-inset ring-indigo-400"
+                    : "hover:bg-slate-50"
+                }`}
+              >
                 <button onClick={() => openFolder(f)} className="flex min-w-0 items-center gap-3 text-left">
                   <span className="text-lg">📁</span>
                   <span className="min-w-0">
@@ -328,21 +510,67 @@ export default function MaterialsPage() {
               </li>
             ))}
 
+            {/* Files - draggable, clickable to preview */}
             {files.map((f) => (
-              <li key={`file-${f.id}`} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-slate-50">
-                <div className="flex min-w-0 items-center gap-3">
+              <li
+                key={`file-${f.id}`}
+                draggable
+                onDragStart={() => setDraggedFile(f)}
+                onDragEnd={() => {
+                  setDraggedFile(null);
+                  setDropTargetFolder(null);
+                }}
+                className={`flex items-center justify-between gap-4 px-4 py-3 transition hover:bg-slate-50 ${
+                  draggedFile?.id === f.id ? "opacity-40" : ""
+                }`}
+              >
+                <button
+                  onClick={() => setPreviewing(f)}
+                  className="flex min-w-0 cursor-pointer items-center gap-3 text-left"
+                  title="Click to preview"
+                >
                   <span className="text-lg">{iconFor(f.fileName)}</span>
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-900">{f.fileName}</p>
-                    <p className="text-xs text-slate-500">
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-slate-900">{f.fileName}</span>
+                    <span className="text-xs text-slate-500">
                       {formatBytes(f.sizeBytes)} · {new Date(f.uploadedAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex shrink-0 gap-3 text-sm">
+                      {searching && ` · in ${folderNameFor(f.folderId, allFolders)}`}
+                    </span>
+                  </span>
+                </button>
+
+                <div className="flex shrink-0 items-center gap-3 text-sm">
+                  <button onClick={() => setPreviewing(f)} className="font-medium text-indigo-600 hover:underline">
+                    Preview
+                  </button>
+
+                  {movingFile?.id === f.id ? (
+                    <select
+                      autoFocus
+                      defaultValue=""
+                      onChange={(e) =>
+                        moveFile(f, e.target.value === "" ? null : Number(e.target.value))
+                      }
+                      onBlur={() => setMovingFile(null)}
+                      className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    >
+                      <option value="" disabled>Move to...</option>
+                      <option value="">All materials (root)</option>
+                      {allFolders
+                        .filter((folder) => folder.id !== f.folderId)
+                        .map((folder) => (
+                          <option key={folder.id} value={folder.id}>{folder.name}</option>
+                        ))}
+                    </select>
+                  ) : (
+                    <button onClick={() => setMovingFile(f)} className="text-slate-500 hover:text-slate-900">
+                      Move
+                    </button>
+                  )}
+
                   <button
                     onClick={() => materialsApi.download(courseId, f.id, f.fileName)}
-                    className="font-medium text-indigo-600 hover:underline"
+                    className="text-slate-500 hover:text-slate-900"
                   >
                     Download
                   </button>
@@ -361,6 +589,7 @@ export default function MaterialsPage() {
                     <span className="block truncate font-medium text-slate-900">{n.title}</span>
                     <span className="text-xs text-slate-500">
                       Note · updated {new Date(n.updatedAt).toLocaleDateString()}
+                      {searching && ` · in ${folderNameFor(n.folderId, allFolders)}`}
                     </span>
                   </span>
                 </button>
@@ -372,8 +601,22 @@ export default function MaterialsPage() {
           </ul>
         )}
       </div>
+
+      {previewing && (
+        <FilePreview
+          courseId={courseId}
+          file={previewing}
+          onClose={() => setPreviewing(null)}
+          onDownload={() => materialsApi.download(courseId, previewing.id, previewing.fileName)}
+        />
+      )}
     </div>
   );
+}
+
+function folderNameFor(folderId, allFolders) {
+  if (!folderId) return "All materials";
+  return allFolders.find((f) => f.id === folderId)?.name ?? "a folder";
 }
 
 function formatBytes(bytes) {

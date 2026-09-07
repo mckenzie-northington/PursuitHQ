@@ -91,10 +91,14 @@ plain link cannot send an Authorization header.
       SDK) powering a text preview for formats no browser can render. PowerPoint
       extraction includes speaker notes
 
-## Phase 5 — Internship & job tracker
+## Phase 5 — Internship & job tracker ✅
 
-- [ ] `ApplicationsController` with status pipeline
-- [ ] Filters and search
+- [x] `ApplicationsController` with the full status pipeline
+- [x] Filters and search (company, role, status, type)
+- [x] Pipeline stats endpoint: counts per status plus interview rate
+- [x] Board page with drag-and-drop between columns, and a list view
+- [x] Applied date fills itself in when a card leaves Saved for the first time
+- [x] Applications sitting in Applied for 21+ days are flagged amber
 
 ## Phase 6 — Frontend foundation (partially done — taken early)
 
@@ -149,14 +153,31 @@ use PursuitHQ. See `Security.md`.
 - [ ] Chunking/truncation for large documents, with the user told what was used
 - [ ] Graceful failure everywhere: no partial decks, quizzes, or edits
 
-## Phase 9a — Internship & job search
+## Phase 9a — Internship & job search ✅ (mostly)
 
-- [ ] Job-board API account and credentials
-- [ ] `IJobSearchService` with short-lived response caching
-- [ ] Search UI: keyword, location, type filters
-- [ ] "Match my resume" keyword extraction and ranking
-- [ ] Apply deep-links to the original posting
-- [ ] Save-to-tracker creating a `JobApplication` with source URL
+- [x] Adzuna account and credentials (free tier, instant signup)
+- [x] `IJobSearchService` + `AdzunaJobSearchService` with 10-minute caching
+- [x] Search UI: keyword, location, and hours filters (including Internship)
+- [x] Apply deep-links to the original posting; nothing is ever submitted for you
+- [x] Save-to-tracker creating a `JobApplication` with `Source = Search`,
+      the external id, and the posting URL; duplicates rejected with 409
+- [ ] "Match my resume" ranking — the remaining piece, and the next thing to build
+
+**A decision worth remembering:** Gemini with Google Search grounding was tried
+as the job source and abandoned. Grounding is **not available on the Gemini free
+tier at all** - it requires billing to be enabled, after which 5,000 search
+requests a month are free. Plain Gemini completions *are* free, so the study
+tools and resume matching are unaffected. Only live job *discovery* needed the
+paid feature, and Adzuna does that better anyway.
+
+**Two bugs worth remembering, both fixed:**
+
+- `body ? JSON.stringify(body) : undefined` in the API client silently dropped a
+  body of `0`, which is the Saved status - so cards could not be moved back to
+  Saved. Truthiness checks and valid zero values do not mix.
+- Adzuna returns a `Content-Type` header whose charset .NET refuses to parse,
+  so `ReadAsStringAsync()` threw before returning any JSON. Reading raw bytes
+  and decoding UTF-8 directly sidesteps it.
 
 ## Phase 10 — Analytics & polish
 

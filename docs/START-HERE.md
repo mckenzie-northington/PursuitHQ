@@ -133,10 +133,14 @@ is not running, nothing on the site works.
 - **Study materials** — nested folders, drag-and-drop upload, move files between
   folders, inline preview (images, PDFs, text, and extracted text from Word /
   PowerPoint / Excel), typed notes, course-wide search, storage quota
+- **Job tracker** — pipeline board with drag-and-drop between Saved, Applied,
+  Interview, Offer, and Rejected; list view; search; stats with interview rate
+- **Job search** — real postings from Adzuna with keyword, location, and hours
+  filters; Apply opens the employer's posting; Save adds it to the tracker
 - **Dashboard** — counts, upcoming assignments, course list
 - **Database** — 30 tables in PostgreSQL, every table modeled and migrated
 
-Phases 0–4 are complete, and Phase 6 (the website) was built early.
+Phases 0–5 are complete, plus job search, plus the website (built early).
 
 ---
 
@@ -144,18 +148,21 @@ Phases 0–4 are complete, and Phase 6 (the website) was built early.
 
 Phase 4 is done. Pick whichever appeals - none depends on the others:
 
-**Phase 5 — Internship & job tracker.** The simplest one left: CRUD like
-courses, plus a board-style page grouped by status. Fastest win.
+**AI resume matching.** The last piece of job search, and the feature from your
+original plan: pull skills from your resume, rank real Adzuna results by fit,
+and explain why each one matches. This is a plain Gemini completion, so it works
+on the free tier — `IAiService` and `GeminiAiService` are already built and
+registered. Needs the `Resume` CRUD endpoints first, which do not exist yet.
+
+**Phase 9 — AI study tools.** Flashcards, quizzes, and study guides generated
+from your uploaded PowerPoints and PDFs. `ITextExtractionService` already pulls
+the text out, and `IAiService` already talks to Gemini, so this is mostly prompt
+writing plus the review-and-edit UI.
 
 **Phase 3a — Calendar view and email reminders.** The most visible improvement.
 The calendar page merges class times, assignment due dates, study sessions, and
 other activities. The reminder half needs a Resend account and an external cron
 service (see `Architecture.md` §5a).
-
-**Phase 9 — AI study tools.** The interesting one, and the reason Phase 4
-mattered. `ITextExtractionService` already pulls text out of uploads, so
-generating flashcards, quizzes, and study guides from a lecture deck is mostly
-prompt work plus `IAiService`. Needs a Gemini API key from Google AI Studio.
 
 <details>
 <summary>Phase 4 details (completed)</summary>
@@ -194,6 +201,21 @@ Key rules from `docs/Security.md` for this feature:
 
 ---
 
+## 5a. API keys already set up
+
+Both live in user-secrets, outside the project, so they are not in git:
+
+| Key | What it powers | Cost |
+|---|---|---|
+| `JobSearch:AppId` / `JobSearch:AppKey` | Adzuna job search | Free, a few hundred calls/day |
+| `Ai:ApiKey` | Gemini, for study tools and resume matching | Free tier |
+
+Check them with `dotnet user-secrets list` from the `PursuitHQ.API` folder.
+
+**Known limit:** Gemini's Google Search grounding requires billing to be
+enabled and is not available on the free tier. Plain completions are free, which
+is everything the remaining AI features need.
+
 ## 6. Saving your work
 
 From the **PursuitHQ root folder**:
@@ -222,6 +244,8 @@ breaking something.
 | Swagger shows no endpoints | App rebuilt but not restarted | Stop the app fully (Ctrl+C), then `dotnet run` again |
 | Editor shows red errors but code looks fine | Language server is stale | Ctrl+Shift+P → **Developer: Reload Window**. Trust `dotnet build`, not squiggles |
 | npm command blocked by PowerShell | Execution policy | Already fixed — `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
+| `Deletion of directory '.git/objects/xx' failed (y/n)` | OneDrive holding git files | Press **Ctrl+C**, then run `git status` to check whether the operation actually completed. Pausing OneDrive sync first avoids it |
+| Pushed but still "ahead by N commits" | The push did not run — what you saw was git's automatic cleanup | Run `git push` again and look for a line like `abc123..def456  main -> main` |
 
 ---
 

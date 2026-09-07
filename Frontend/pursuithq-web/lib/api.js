@@ -60,7 +60,9 @@ async function request(path, { method = "GET", body } = {}) {
     res = await fetch(`${API_URL}${path}`, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      // body !== undefined, not a truthiness check: a bare 0 is a valid body
+      // (it is the Saved status), and `body ? ...` would silently drop it.
+      body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
     throw new ApiError(
@@ -265,4 +267,31 @@ export const notes = {
   create: (courseId, data) => api.post(`/api/courses/${courseId}/notes`, data),
   update: (courseId, id, data) => api.put(`/api/courses/${courseId}/notes/${id}`, data),
   remove: (courseId, id) => api.del(`/api/courses/${courseId}/notes/${id}`),
+};
+
+export const applications = {
+  list: (params = {}) => {
+    const q = new URLSearchParams();
+    if (params.status !== undefined && params.status !== "") q.set("status", params.status);
+    if (params.type !== undefined && params.type !== "") q.set("type", params.type);
+    if (params.search) q.set("search", params.search);
+    const qs = q.toString();
+    return api.get(`/api/applications${qs ? `?${qs}` : ""}`);
+  },
+  stats: () => api.get("/api/applications/stats"),
+  create: (data) => api.post("/api/applications", data),
+  update: (id, data) => api.put(`/api/applications/${id}`, data),
+  // Status-only update, used when dragging a card between columns.
+  setStatus: (id, status) => api.put(`/api/applications/${id}/status`, status),
+  remove: (id) => api.del(`/api/applications/${id}`),
+};
+
+export const jobSearch = {
+  search: ({ query, location, contractTime, page = 1 }) => {
+    const q = new URLSearchParams({ query, page: String(page) });
+    if (location) q.set("location", location);
+    if (contractTime) q.set("contractTime", contractTime);
+    return api.get(`/api/jobs/search?${q.toString()}`);
+  },
+  saveToTracker: (data) => api.post("/api/jobs/save", data),
 };

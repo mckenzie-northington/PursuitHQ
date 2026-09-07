@@ -89,6 +89,32 @@ builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
 // preview now, and the AI study tools later.
 builder.Services.AddScoped<ITextExtractionService, TextExtractionService>();
 
+// Job search against an external board. A typed HttpClient gives connection
+// pooling and a timeout; IMemoryCache keeps repeated searches inside the free
+// tier's daily call limit.
+builder.Services.AddMemoryCache();
+
+// AI. Everything that talks to Gemini goes through IAiService, so the provider
+// can change in one place. A typed HttpClient gives pooling and a timeout.
+builder.Services.Configure<AiOptions>(
+    builder.Configuration.GetSection(AiOptions.SectionName));
+builder.Services.AddHttpClient<IAiService, GeminiAiService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(90);
+});
+
+// Job search runs on Adzuna: a real job feed with a free tier and working
+// links. Gemini's Google Search grounding was the alternative, but it is not
+// available on the free tier at all - it requires billing to be enabled.
+// AI is still used here, just for ranking these real results against a resume,
+// which is a plain completion and works on the free tier.
+builder.Services.Configure<JobSearchOptions>(
+    builder.Configuration.GetSection(JobSearchOptions.SectionName));
+builder.Services.AddHttpClient<IJobSearchService, AdzunaJobSearchService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+});
+
 // ---------------------------------------------------------------------------
 // Controllers and Swagger
 // ---------------------------------------------------------------------------

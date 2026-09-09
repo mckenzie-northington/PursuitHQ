@@ -32,6 +32,8 @@ namespace PursuitHQ.API.Data
         public DbSet<QuizAttempt> QuizAttempts => Set<QuizAttempt>();
         public DbSet<QuizAnswer> QuizAnswers => Set<QuizAnswer>();
         public DbSet<StudyGuide> StudyGuides => Set<StudyGuide>();
+        public DbSet<StudyConversation> StudyConversations => Set<StudyConversation>();
+        public DbSet<StudyMessage> StudyMessages => Set<StudyMessage>();
 
         // Career
         public DbSet<JobApplication> JobApplications => Set<JobApplication>();
@@ -99,6 +101,29 @@ namespace PursuitHQ.API.Data
         {
             // Required: sets up all of Identity's own tables.
             base.OnModelCreating(builder);
+
+            // --- Study chat -------------------------------------------------
+            // Deleting a conversation takes its messages with it: a message
+            // outside its conversation means nothing.
+            builder.Entity<StudyMessage>()
+                .HasOne(m => m.Conversation)
+                .WithMany(c => c.Messages)
+                .HasForeignKey(m => m.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A saved guide outlives the chat that produced it, so deleting the
+            // conversation must not cascade into the library.
+            builder.Entity<StudyMessage>()
+                .HasOne(m => m.SavedStudyGuide)
+                .WithMany()
+                .HasForeignKey(m => m.SavedStudyGuideId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            builder.Entity<StudyConversation>()
+                .HasIndex(c => new { c.UserId, c.CourseId });
+
+            builder.Entity<StudyMessage>()
+                .HasIndex(m => new { m.ConversationId, m.CreatedAt });
 
             // --- Self-referencing folder tree -------------------------------
             // Deleting a folder must not cascade up into its parent, so the

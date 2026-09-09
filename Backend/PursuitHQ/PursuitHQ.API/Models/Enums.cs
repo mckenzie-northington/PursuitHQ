@@ -1,4 +1,4 @@
-namespace PursuitHQ.API.Models
+﻿namespace PursuitHQ.API.Models
 {
     public enum AssignmentStatus
     {
@@ -71,5 +71,19 @@ namespace PursuitHQ.API.Models
         MultipleChoice = 0,
         TrueFalse = 1,
         ShortAnswer = 2
+    }
+
+    public enum StudyMessageRole
+    {
+        User = 0,
+        Assistant = 1
+    }
+
+    /// <summary>Something a chat reply produced that is worth keeping.</summary>
+    public enum StudyArtifactKind
+    {
+        None = 0,
+        StudyGuide = 1,
+        PracticeTest = 2
     }
 }

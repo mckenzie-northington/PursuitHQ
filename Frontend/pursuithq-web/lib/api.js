@@ -278,6 +278,46 @@ export const notes = {
 
 
 
+export const flashcards = {
+  /** Whether AI generation is available, and how much of today's allowance is left. */
+  aiStatus: () => api.get("/api/flashcard-decks/ai-status"),
+
+  listDecks: (courseId) =>
+    api.get(courseId ? `/api/flashcard-decks?courseId=${courseId}` : "/api/flashcard-decks"),
+  getDeck: (id) => api.get(`/api/flashcard-decks/${id}`),
+  generate: (data) => api.post("/api/flashcard-decks/generate", data),
+  renameDeck: (id, title) => api.put(`/api/flashcard-decks/${id}`, { title }),
+  removeDeck: (id) => api.del(`/api/flashcard-decks/${id}`),
+
+  addCard: (deckId, data) => api.post(`/api/flashcard-decks/${deckId}/cards`, data),
+  updateCard: (deckId, cardId, data) =>
+    api.put(`/api/flashcard-decks/${deckId}/cards/${cardId}`, data),
+  removeCard: (deckId, cardId) => api.del(`/api/flashcard-decks/${deckId}/cards/${cardId}`),
+
+  /** Records how a card went, so the deck knows which ones keep being missed. */
+  review: (deckId, cardId, correct) =>
+    api.post(`/api/flashcard-decks/${deckId}/cards/${cardId}/review`, { correct }),
+};
+
+export const study = {
+  conversations: (courseId) =>
+    api.get(courseId ? `/api/study/conversations?courseId=${courseId}` : "/api/study/conversations"),
+  conversation: (id) => api.get(`/api/study/conversations/${id}`),
+  start: (courseId, title) => api.post("/api/study/conversations", { courseId, title }),
+  setSources: (id, sourceMaterialIds, sourceNoteIds) =>
+    api.put(`/api/study/conversations/${id}/sources`, { sourceMaterialIds, sourceNoteIds }),
+  ask: (id, question) => api.post(`/api/study/conversations/${id}/ask`, { question }),
+  removeConversation: (id) => api.del(`/api/study/conversations/${id}`),
+
+  /** Keeps a generated study guide in the library. */
+  saveArtifact: (messageId) => api.post(`/api/study/messages/${messageId}/save`),
+
+  guides: (courseId) =>
+    api.get(courseId ? `/api/study/guides?courseId=${courseId}` : "/api/study/guides"),
+  guide: (id) => api.get(`/api/study/guides/${id}`),
+  removeGuide: (id) => api.del(`/api/study/guides/${id}`),
+};
+
 export const preferences = {
   /** The student's saved color palette, as an array of hex strings. */
   colors: () => api.get("/api/preferences/colors"),

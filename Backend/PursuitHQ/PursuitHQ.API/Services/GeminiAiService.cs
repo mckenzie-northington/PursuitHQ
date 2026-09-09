@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 
@@ -40,6 +40,27 @@ namespace PursuitHQ.API.Services
             return new GroundedResult(ExtractText(json), ExtractCitations(json));
         }
 
+        /// <summary>
+        /// How long to wait before each retry. Three attempts total, spread far
+        /// enough apart to outlast a brief capacity spike without leaving the
+        /// student staring at a spinner.
+        /// </summary>
+        private static readonly TimeSpan[] RetryDelays =
+        {
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromSeconds(5)
+        };
+
+        /// <summary>
+        /// Server-side failures worth retrying. A shared model gets busy, and
+        /// the same request a few seconds later usually succeeds.
+        ///
+        /// 429 is deliberately NOT in this list. That is a quota, not a blip -
+        /// retrying it just burns time before failing with the same message.
+        /// </summary>
+        private static bool IsTransient(int status) =>
+            status is 500 or 502 or 503 or 504;
+
         private async Task<JsonDocument> SendAsync(
             string prompt, string? model, bool useSearch, CancellationToken ct)
         {
@@ -60,38 +81,57 @@ namespace PursuitHQ.API.Services
                 payload["tools"] = new[] { new { type = "google_search" } };
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+            var serialized = JsonSerializer.Serialize(payload);
+
+            for (var attempt = 0; ; attempt++)
             {
-                Content = new StringContent(
-                    JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
-            };
+                // A request message cannot be sent twice, so each attempt
+                // builds its own.
+                using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+                {
+                    Content = new StringContent(serialized, Encoding.UTF8, "application/json")
+                };
 
-            request.Headers.Add("x-goog-api-key", _options.ApiKey);
+                request.Headers.Add("x-goog-api-key", _options.ApiKey);
 
-            using var response = await _http.SendAsync(request, ct);
-            var body = await response.Content.ReadAsStringAsync(ct);
+                using var response = await _http.SendAsync(request, ct);
+                var body = await response.Content.ReadAsStringAsync(ct);
 
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("Gemini returned {Status}: {Body}",
-                    response.StatusCode, body.Length > 500 ? body[..500] : body);
+                if (response.IsSuccessStatusCode) return JsonDocument.Parse(body);
+
+                var status = (int)response.StatusCode;
+
+                _logger.LogWarning("Gemini returned {Status} on attempt {Attempt}: {Body}",
+                    status, attempt + 1, body.Length > 500 ? body[..500] : body);
 
                 // Gemini explains itself in the response body - quota exceeded,
-                // model unavailable, bad key. Passing that through beats a
+                // model overloaded, bad key. Passing that through beats a
                 // generic message that leaves you guessing.
                 var detail = ExtractApiError(body);
 
-                if ((int)response.StatusCode == 429)
+                if (IsTransient(status) && attempt < RetryDelays.Length)
                 {
-                    throw new HttpRequestException(
-                        "Gemini rate limit or quota: " + detail);
+                    await Task.Delay(RetryDelays[attempt], ct);
+                    continue;
                 }
 
-                throw new HttpRequestException(
-                    $"Gemini returned {(int)response.StatusCode}: {detail}");
-            }
+                if (status == 429)
+                {
+                    throw new HttpRequestException("Gemini rate limit or quota: " + detail);
+                }
 
-            return JsonDocument.Parse(body);
+                if (IsTransient(status))
+                {
+                    // Said plainly, because there is nothing wrong with the
+                    // request and nothing for the student to fix.
+                    throw new HttpRequestException(
+                        "Gemini is busy right now and did not answer after "
+                        + $"{RetryDelays.Length + 1} tries. This is temporary - wait a minute and "
+                        + $"try again. (It said: {detail})");
+                }
+
+                throw new HttpRequestException($"Gemini returned {status}: {detail}");
+            }
         }
 
         /// <summary>Pulls the human-readable message out of an API error body.</summary>

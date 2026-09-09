@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -102,6 +102,16 @@ builder.Services.AddHttpClient<IAiService, GeminiAiService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(90);
 });
+
+// Study tools sit on top of IAiService: that one knows how to reach Gemini,
+// this one knows what to ask it and what a usable answer looks like.
+builder.Services.AddScoped<IStudyToolAiService, StudyToolAiService>();
+builder.Services.AddScoped<IStudyChatService, StudyChatService>();
+
+// Singleton so the daily counts survive between requests. In-memory, so they
+// do not survive a restart and would not be shared across instances - fine for
+// a soft guard against runaway loops, not a billing control.
+builder.Services.AddSingleton<IAiUsageLimiter, AiUsageLimiter>();
 
 // ---------------------------------------------------------------------------
 // Controllers and Swagger

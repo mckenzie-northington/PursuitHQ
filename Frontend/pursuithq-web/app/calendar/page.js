@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   assignments as assignmentsApi,
   calendar as calendarApi,
@@ -33,7 +32,6 @@ const VIEWS = ["month", "week", "day"];
 
 export default function CalendarPage() {
   const { user, loading } = useAuth();
-  const router = useRouter();
 
   const [view, setView] = useState("month");
   const [anchor, setAnchor] = useState(() => startOfToday());
@@ -47,8 +45,10 @@ export default function CalendarPage() {
   const [dialogError, setDialogError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // A class, assignment or study session that was clicked - those are not
-  // editable here, so they get a read-only card instead of the dialog.
+  // The item whose overview card is open, as { item, event }. `event` is the
+  // full CalendarEvent record when the item is one, and null otherwise.
+  // Clicking anything opens this card first - editing is a deliberate second
+  // step, never something a stray click drops you into.
   const [detail, setDetail] = useState(null);
 
   const { rangeStart, rangeEnd, gridDays } = useMemo(
@@ -108,24 +108,38 @@ export default function CalendarPage() {
   }
 
   async function openItem(item) {
-    // A class on the calendar is a shortcut into the course itself - that is
-    // where its notes, slides and handouts live.
-    if (item.type === TYPE.CLASS && item.courseId) {
-      router.push(`/courses/${item.courseId}/materials`);
-      return;
-    }
-
     if (item.type !== TYPE.EVENT) {
-      setDetail(item);
+      setDetail({ item, event: null });
       return;
     }
 
-    // The calendar item only carries what the grid draws, so the full record
-    // has to be fetched before the dialog can show notes, repeats and kind.
+    // The calendar item carries only what the grid draws, so the full record
+    // has to be fetched before the card can show notes and repeats.
     try {
       const full = await eventsApi.get(item.sourceId);
-      setDialogError("");
-      setDialog(eventToForm(full));
+      setDetail({ item, event: full });
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  /** Overview card to edit dialog - the second, deliberate step. */
+  function editFromDetail() {
+    if (!detail?.event) return;
+
+    setDialogError("");
+    setDialog(eventToForm(detail.event));
+    setDetail(null);
+  }
+
+  async function deleteFromDetail() {
+    if (!detail?.event) return;
+    if (!confirm(`Delete "${detail.event.title}"?`)) return;
+
+    try {
+      await eventsApi.remove(detail.event.id);
+      setDetail(null);
+      await refresh();
     } catch (err) {
       setError(err.message);
     }
@@ -181,7 +195,9 @@ export default function CalendarPage() {
           : i
       )
     );
-    setDetail((d) => (d && d.id === item.id ? { ...d, status: nextLabel } : d));
+    setDetail((d) =>
+      d && d.item.id === item.id ? { ...d, item: { ...d.item, status: nextLabel } } : d
+    );
 
     try {
       await assignmentsApi.setStatus(item.sourceId, nextStatus);
@@ -300,7 +316,15 @@ export default function CalendarPage() {
         />
       )}
 
-      {detail && <ItemDetail item={detail} onClose={() => setDetail(null)} onToggle={toggleAssignment} />}
+      {detail && (
+        <ItemDetail
+          detail={detail}
+          onClose={() => setDetail(null)}
+          onToggle={toggleAssignment}
+          onEdit={editFromDetail}
+          onDelete={deleteFromDetail}
+        />
+      )}
     </div>
   );
 }
@@ -366,9 +390,18 @@ function DaySchedule({ dateStr, items, onItemClick, onToggleAssignment }) {
   );
 }
 
-/** Read-only card for the things the calendar shows but does not own. */
-function ItemDetail({ item, onClose, onToggle }) {
+/**
+ * The overview card that opens when you click anything on the calendar.
+ *
+ * Everything gets a card first. For an event, Edit is a button on that card
+ * rather than what a single click does - clicking something to read it and
+ * landing in a form is how people change things by accident.
+ */
+function ItemDetail({ detail, onClose, onToggle, onEdit, onDelete }) {
+  const { item, event } = detail;
+
   const assignment = item.type === TYPE.ASSIGNMENT;
+  const isEvent = item.type === TYPE.EVENT;
   const done = isDone(item);
 
   const links = [
@@ -379,20 +412,35 @@ function ItemDetail({ item, onClose, onToggle }) {
     },
   ].filter(Boolean);
 
+  const repeats = event?.isRecurring ? recurrenceSummary(event.recurrenceRule) : null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
       <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
 
       <div className="relative w-full max-w-sm rounded-xl border border-slate-200 bg-white shadow-xl">
-        <div
-          className="h-1.5 rounded-t-xl"
-          style={{ backgroundColor: colorOf(item) }}
-        />
+        <div className="h-1.5 rounded-t-xl" style={{ backgroundColor: colorOf(item) }} />
+
         <div className="px-5 py-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            {TYPE_LABEL[item.type]}
-          </p>
-          <h2 className={`mt-1 text-lg font-medium ${done ? "text-slate-400 line-through" : "text-slate-900"}`}>
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              {TYPE_LABEL[item.type]}
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="-mr-1 -mt-1 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            >
+              &#10005;
+            </button>
+          </div>
+
+          <h2
+            className={`mt-1 text-lg font-medium ${
+              done ? "text-slate-400 line-through" : "text-slate-900"
+            }`}
+          >
             {item.title}
           </h2>
 
@@ -401,8 +449,15 @@ function ItemDetail({ item, onClose, onToggle }) {
             {item.location && <div>{item.location}</div>}
             <div>{longDate(item.date)}</div>
             <div>{timeRangeOf(item)}</div>
+            {repeats && <div className="text-slate-500">{repeats}</div>}
             {item.isOverdue && !done && <div className="font-medium text-red-600">Overdue</div>}
           </dl>
+
+          {event?.description && (
+            <p className="mt-3 whitespace-pre-wrap border-t border-slate-100 pt-3 text-sm text-slate-600">
+              {event.description}
+            </p>
+          )}
 
           {assignment && (
             <label className="mt-4 flex w-fit cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
@@ -412,7 +467,7 @@ function ItemDetail({ item, onClose, onToggle }) {
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-5 py-3">
           <div className="flex flex-wrap gap-4">
             {links.map((link) => (
               <Link
@@ -424,12 +479,30 @@ function ItemDetail({ item, onClose, onToggle }) {
               </Link>
             ))}
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-          >
-            Close
-          </button>
+
+          {isEvent ? (
+            <div className="flex gap-2">
+              <button
+                onClick={onDelete}
+                className="rounded-md px-3 py-2 text-sm font-medium text-slate-500 transition hover:bg-red-50 hover:text-red-600"
+              >
+                Delete
+              </button>
+              <button
+                onClick={onEdit}
+                className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700"
+              >
+                Edit
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={onClose}
+              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              Close
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -543,4 +616,21 @@ function eventToForm(dto) {
 function parseByDay(rule) {
   const match = /BYDAY=([^;]*)/i.exec(rule || "");
   return match ? match[1].split(",").filter(Boolean) : [];
+}
+
+/** "Repeats weekly on Tue, Thu" - the rule in words rather than iCal. */
+function recurrenceSummary(rule) {
+  const days = parseByDay(rule);
+  if (days.length === 0) return "Repeats weekly";
+
+  const names = {
+    SU: "Sun", MO: "Mon", TU: "Tue", WE: "Wed", TH: "Thu", FR: "Fri", SA: "Sat",
+  };
+
+  // Ordered the way a week reads, not the order they happen to be stored in.
+  const ordered = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
+    .filter((code) => days.includes(code))
+    .map((code) => names[code]);
+
+  return `Repeats weekly on ${ordered.join(", ")}`;
 }

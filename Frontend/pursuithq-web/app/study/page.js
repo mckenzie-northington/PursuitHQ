@@ -35,7 +35,7 @@ export default function StudyPage() {
   const [thinking, setThinking] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
-  const [showSources, setShowSources] = useState(false);
+  const [showSources, setShowSources] = useState(true);
   const [openGuide, setOpenGuide] = useState(null);
 
   const bottom = useRef(null);
@@ -109,11 +109,7 @@ export default function StudyPage() {
     setQuestion("");
 
     try {
-      let active = conversation;
-      if (!active) {
-        active = await studyApi.start(courseId);
-        setConversation(active);
-      }
+      const active = await ensureConversation();
 
       // Shown immediately with a temporary id; the server's copy arrives with
       // the reply. Waiting would leave the input empty and nothing on screen.
@@ -174,19 +170,37 @@ export default function StudyPage() {
     }
   }
 
+  /**
+   * Makes sure there is a conversation to attach things to.
+   *
+   * Choosing your sources before asking anything is the natural order - you
+   * decide what you are working from, then you ask about it - so the
+   * conversation is created the moment it is needed rather than only on the
+   * first question.
+   */
+  async function ensureConversation() {
+    if (conversation) return conversation;
+
+    const created = await studyApi.start(courseId);
+    setConversation(created);
+    setConversationList((list) => [created, ...list]);
+
+    return created;
+  }
+
   async function toggleSource(item) {
-    if (!conversation) return;
-
-    const materialIds = new Set(conversation.sourceMaterialIds ?? []);
-    const noteIds = new Set(conversation.sourceNoteIds ?? []);
-    const set = item.kind === "material" ? materialIds : noteIds;
-
-    if (set.has(item.id)) set.delete(item.id);
-    else set.add(item.id);
-
     try {
-      const updated = await studyApi.setSources(conversation.id, [...materialIds], [...noteIds]);
-      setConversation((c) => ({ ...c, ...updated, messages: c.messages }));
+      const active = await ensureConversation();
+
+      const materialIds = new Set(active.sourceMaterialIds ?? []);
+      const noteIds = new Set(active.sourceNoteIds ?? []);
+      const set = item.kind === "material" ? materialIds : noteIds;
+
+      if (set.has(item.id)) set.delete(item.id);
+      else set.add(item.id);
+
+      const updated = await studyApi.setSources(active.id, [...materialIds], [...noteIds]);
+      setConversation((c) => ({ ...updated, messages: c?.messages ?? [] }));
     } catch (err) {
       setError(err.message);
     }
@@ -314,7 +328,6 @@ export default function StudyPage() {
                         type="checkbox"
                         checked={selectedIds.has(item.key)}
                         onChange={() => toggleSource(item)}
-                        disabled={!conversation}
                         className="h-4 w-4 rounded border-slate-300 text-indigo-600"
                       />
                       <span className="truncate">
@@ -323,11 +336,6 @@ export default function StudyPage() {
                       </span>
                     </label>
                   ))
-                )}
-                {!conversation && sources.length > 0 && (
-                  <p className="pt-1 text-xs text-slate-400">
-                    Ask something first, then pick what to work from.
-                  </p>
                 )}
               </div>
             )}

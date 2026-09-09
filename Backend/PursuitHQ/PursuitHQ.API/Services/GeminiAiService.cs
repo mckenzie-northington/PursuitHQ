@@ -29,14 +29,28 @@ namespace PursuitHQ.API.Services
         public async Task<string> CompleteAsync(
             string prompt, string? model = null, CancellationToken ct = default)
         {
-            var json = await SendAsync(prompt, model, useSearch: false, ct);
-            return ExtractText(json);
+            using var json = await SendAsync(prompt, model, useSearch: false, ct);
+            var text = ExtractText(json);
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                // A 200 with nothing readable in it means the response is
+                // shaped differently than any of the paths ExtractText knows.
+                // Logging the actual JSON is the only way to find out which.
+                var raw = json.RootElement.GetRawText();
+
+                _logger.LogWarning(
+                    "Gemini returned a success with no readable text. Raw response: {Raw}",
+                    raw.Length > 2000 ? raw[..2000] : raw);
+            }
+
+            return text;
         }
 
         public async Task<GroundedResult> CompleteWithSearchAsync(
             string prompt, string? model = null, CancellationToken ct = default)
         {
-            var json = await SendAsync(prompt, model, useSearch: true, ct);
+            using var json = await SendAsync(prompt, model, useSearch: true, ct);
             return new GroundedResult(ExtractText(json), ExtractCitations(json));
         }
 
@@ -221,7 +235,39 @@ namespace PursuitHQ.API.Services
                 }
             }
 
+            if (sb.Length > 0) return sb.ToString();
+
+            // Last resort: walk the whole document and take every "text"
+            // string in it. The known shapes above are cheap and precise;
+            // this catches a response layout that has changed since they were
+            // written, which is better than showing the student nothing.
+            CollectText(root, sb);
+
             return sb.ToString();
+        }
+
+        private static void CollectText(JsonElement el, StringBuilder sb)
+        {
+            switch (el.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    foreach (var prop in el.EnumerateObject())
+                    {
+                        if (prop.NameEquals("text") && prop.Value.ValueKind == JsonValueKind.String)
+                        {
+                            sb.Append(prop.Value.GetString());
+                        }
+                        else
+                        {
+                            CollectText(prop.Value, sb);
+                        }
+                    }
+                    break;
+
+                case JsonValueKind.Array:
+                    foreach (var item in el.EnumerateArray()) CollectText(item, sb);
+                    break;
+            }
         }
 
         /// <summary>

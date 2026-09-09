@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { assignments as assignmentsApi, courses as coursesApi } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import AssignmentCheckbox from "@/components/calendar/AssignmentCheckbox";
 
 // Matches the AssignmentStatus enum in the API.
 const STATUS = { 0: "Not started", 1: "In progress", 2: "Completed" };
@@ -47,7 +48,10 @@ export default function AssignmentsPage() {
         courseId: Number(form.courseId),
         title: form.title,
         description: form.description || null,
-        dueDate: new Date(form.dueDate).toISOString(),
+        // Sent exactly as typed. Converting to UTC here would store a
+        // different wall-clock time than the student picked, and an 11:59 PM
+        // deadline would land on the next day in the calendar.
+        dueDate: form.dueDate,
         status: Number(form.status),
       });
       setShowForm(false);
@@ -60,20 +64,37 @@ export default function AssignmentsPage() {
     }
   }
 
-  async function cycleStatus(a) {
-    const next = a.status === 2 ? 0 : a.status + 1;
+  /**
+   * Saves a new status and updates the row in place.
+   *
+   * This patches only the status rather than sending a whole assignment back,
+   * so nothing else can be overwritten with a stale value on the way through.
+   */
+  async function setStatus(a, next) {
+    const previous = items;
+
+    setItems((current) =>
+      current.map((row) =>
+        row.id === a.id
+          ? { ...row, status: next, isOverdue: next === 2 ? false : row.isOverdue }
+          : row
+      )
+    );
+
     try {
-      await assignmentsApi.update(a.id, {
-        title: a.title,
-        description: a.description,
-        dueDate: a.dueDate,
-        status: next,
-        grade: a.grade,
-      });
-      await refresh();
+      await assignmentsApi.setStatus(a.id, next);
     } catch (err) {
+      setItems(previous);
       setError(err.message);
     }
+  }
+
+  function toggleDone(a) {
+    setStatus(a, a.status === 2 ? 0 : 2);
+  }
+
+  function cycleStatus(a) {
+    setStatus(a, a.status === 2 ? 0 : a.status + 1);
   }
 
   async function remove(a) {
@@ -183,12 +204,23 @@ export default function AssignmentsPage() {
           <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
             {items.map((a) => (
               <li key={a.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-slate-900">{a.title}</p>
-                  <p className="text-sm text-slate-500">
-                    {a.courseName} · due {new Date(a.dueDate).toLocaleString()}
-                    {a.isOverdue && <span className="ml-2 font-medium text-red-600">Overdue</span>}
-                  </p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <AssignmentCheckbox checked={a.status === 2} onChange={() => toggleDone(a)} />
+                  <div className="min-w-0">
+                    <p
+                      className={`truncate font-medium ${
+                        a.status === 2 ? "text-slate-400 line-through" : "text-slate-900"
+                      }`}
+                    >
+                      {a.title}
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      {a.courseName} · due {new Date(a.dueDate).toLocaleString()}
+                      {a.isOverdue && a.status !== 2 && (
+                        <span className="ml-2 font-medium text-red-600">Overdue</span>
+                      )}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">

@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PursuitHQ.API.Data;
 using PursuitHQ.API.DTOs;
@@ -35,7 +35,12 @@ namespace PursuitHQ.API.Controllers
             if (dueBefore.HasValue) query = query.Where(a => a.DueDate <= dueBefore.Value);
             if (dueAfter.HasValue) query = query.Where(a => a.DueDate >= dueAfter.Value);
 
-            var now = DateTime.UtcNow;
+            // Due dates are wall-clock, so "overdue" is a wall-clock question.
+            // DateTime.Now is the server's clock, which is the student's clock
+            // while the app runs on their laptop. Once this is deployed the
+            // server will be on UTC and this needs ApplicationUser.TimeZone
+            // instead - noted in docs/Deployment.md.
+            var now = DateTime.Now;
 
             var assignments = await query
                 .OrderBy(a => a.DueDate)
@@ -120,6 +125,25 @@ namespace PursuitHQ.API.Controllers
             return Ok(ToDto(assignment));
         }
 
+        /// <summary>
+        /// Flips just the status - what the calendar checkbox calls.
+        /// </summary>
+        [HttpPatch("{id:int}/status")]
+        public async Task<ActionResult<AssignmentDto>> UpdateStatus(
+            int id, UpdateAssignmentStatusDto dto)
+        {
+            var assignment = await _db.Assignments
+                .Include(a => a.Course)
+                .FirstOrDefaultAsync(a => a.Id == id && a.Course!.UserId == CurrentUserId);
+
+            if (assignment is null) return NotFound(NotFoundError());
+
+            assignment.Status = dto.Status;
+            await _db.SaveChangesAsync();
+
+            return Ok(ToDto(assignment));
+        }
+
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteAssignment(int id)
         {
@@ -151,7 +175,7 @@ namespace PursuitHQ.API.Controllers
             Status = a.Status,
             Grade = a.Grade,
             CreatedAt = a.CreatedAt,
-            IsOverdue = a.DueDate < DateTime.UtcNow && a.Status != AssignmentStatus.Completed
+            IsOverdue = a.DueDate < DateTime.Now && a.Status != AssignmentStatus.Completed
         };
     }
 }

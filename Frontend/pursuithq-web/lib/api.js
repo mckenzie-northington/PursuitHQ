@@ -171,6 +171,7 @@ export const api = {
   get: (path) => request(path),
   post: (path, body) => request(path, { method: "POST", body }),
   put: (path, body) => request(path, { method: "PUT", body }),
+  patch: (path, body) => request(path, { method: "PATCH", body }),
   del: (path) => request(path, { method: "DELETE" }),
 };
 
@@ -205,6 +206,12 @@ export const assignments = {
   },
   create: (data) => api.post("/api/assignments", data),
   update: (id, data) => api.put(`/api/assignments/${id}`, data),
+  /**
+   * Changes only the status. Used by the checkbox on the calendar, which has
+   * a calendar item rather than a full assignment and so cannot send a PUT
+   * without risking overwriting fields with stale values.
+   */
+  setStatus: (id, status) => api.patch(`/api/assignments/${id}/status`, { status }),
   remove: (id) => api.del(`/api/assignments/${id}`),
 };
 
@@ -269,29 +276,23 @@ export const notes = {
   remove: (courseId, id) => api.del(`/api/courses/${courseId}/notes/${id}`),
 };
 
-export const applications = {
-  list: (params = {}) => {
-    const q = new URLSearchParams();
-    if (params.status !== undefined && params.status !== "") q.set("status", params.status);
-    if (params.type !== undefined && params.type !== "") q.set("type", params.type);
-    if (params.search) q.set("search", params.search);
-    const qs = q.toString();
-    return api.get(`/api/applications${qs ? `?${qs}` : ""}`);
-  },
-  stats: () => api.get("/api/applications/stats"),
-  create: (data) => api.post("/api/applications", data),
-  update: (id, data) => api.put(`/api/applications/${id}`, data),
-  // Status-only update, used when dragging a card between columns.
-  setStatus: (id, status) => api.put(`/api/applications/${id}/status`, status),
-  remove: (id) => api.del(`/api/applications/${id}`),
+
+
+export const preferences = {
+  /** The student's saved color palette, as an array of hex strings. */
+  colors: () => api.get("/api/preferences/colors"),
+  saveColors: (colors) => api.put("/api/preferences/colors", { colors }),
 };
 
-export const jobSearch = {
-  search: ({ query, location, contractTime, page = 1 }) => {
-    const q = new URLSearchParams({ query, page: String(page) });
-    if (location) q.set("location", location);
-    if (contractTime) q.set("contractTime", contractTime);
-    return api.get(`/api/jobs/search?${q.toString()}`);
-  },
-  saveToTracker: (data) => api.post("/api/jobs/save", data),
+export const calendar = {
+  /** Everything on the calendar between two dates (YYYY-MM-DD). */
+  range: (from, to) => api.get(`/api/calendar?from=${from}&to=${to}`),
+};
+
+export const calendarEvents = {
+  /** The full event record. Calendar items carry only what the grid draws. */
+  get: (id) => api.get(`/api/calendar-events/${id}`),
+  create: (data) => api.post("/api/calendar-events", data),
+  update: (id, data) => api.put(`/api/calendar-events/${id}`, data),
+  remove: (id) => api.del(`/api/calendar-events/${id}`),
 };

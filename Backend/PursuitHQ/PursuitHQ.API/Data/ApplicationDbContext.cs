@@ -1,5 +1,6 @@
-using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PursuitHQ.API.Models;
 
 namespace PursuitHQ.API.Data
@@ -42,6 +43,57 @@ namespace PursuitHQ.API.Data
         // Notifications
         public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
         public DbSet<Notification> Notifications => Set<Notification>();
+
+        /// <summary>
+        /// Every DateTime column is PostgreSQL "timestamp with time zone", and
+        /// Npgsql refuses to write a DateTime whose Kind is Unspecified to one.
+        /// Unspecified is exactly what we get everywhere that matters: a
+        /// datetime-local input sends "2026-09-08T09:00" with no offset, and
+        /// DateOnly.ToDateTime() produces Unspecified too. Without this, every
+        /// calendar query threw.
+        ///
+        /// The rule for this app is that a stored DateTime is a WALL-CLOCK
+        /// time, not an instant. A 9am class is 9am; a paper due at 11:59pm is
+        /// due at 11:59pm. So going in we only stamp the Kind so the driver
+        /// will accept the value, and coming out we strip the Kind back to
+        /// Unspecified.
+        ///
+        /// Stripping it on the way out is the half that matters to the UI:
+        /// System.Text.Json writes a Utc DateTime with a trailing "Z", the
+        /// browser would read that as an instant and shift it into local time,
+        /// and an assignment due at 11:59pm would land on the wrong day in the
+        /// calendar. Unspecified serializes with no suffix, which JavaScript
+        /// parses as local time - the same wall clock we stored.
+        ///
+        /// A value that genuinely carries an offset (Kind = Local) is converted
+        /// to UTC first, so it still means the same instant.
+        /// </summary>
+        protected override void ConfigureConventions(ModelConfigurationBuilder builder)
+        {
+            base.ConfigureConventions(builder);
+
+            // Registering DateTime also covers DateTime? properties - EF wraps
+            // the converter for nulls on its own.
+            builder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+        }
+
+        // Public because EF constructs it by reflection from the type argument
+        // above.
+        public sealed class UtcDateTimeConverter : ValueConverter<DateTime, DateTime>
+        {
+            public UtcDateTimeConverter() : base(
+                toDb => ToUtc(toDb),
+                fromDb => DateTime.SpecifyKind(fromDb, DateTimeKind.Unspecified))
+            {
+            }
+        }
+
+        private static DateTime ToUtc(DateTime value) => value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
 
         protected override void OnModelCreating(ModelBuilder builder)
         {

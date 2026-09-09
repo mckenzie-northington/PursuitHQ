@@ -1,4 +1,4 @@
-namespace PursuitHQ.API.Models
+﻿namespace PursuitHQ.API.Models
 {
     /// <summary>A course the student is taking in a given semester.</summary>
     public class Course
@@ -11,6 +11,18 @@ namespace PursuitHQ.API.Models
         public string Name { get; set; } = string.Empty;
         public string Professor { get; set; } = string.Empty;
         public string Semester { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The first and last day the course actually meets.
+        ///
+        /// Class times repeat weekly, so without an end date a Tuesday class
+        /// would draw itself on every Tuesday the calendar can reach - years
+        /// into the future. These bound that expansion. Both are optional:
+        /// a course with no dates set still shows on every matching weekday,
+        /// which is the old behaviour.
+        /// </summary>
+        public DateOnly? StartDate { get; set; }
+        public DateOnly? EndDate { get; set; }
 
         public int? CreditHours { get; set; }
 

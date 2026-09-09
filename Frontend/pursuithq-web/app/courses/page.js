@@ -3,10 +3,21 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { courses as coursesApi } from "@/lib/api";
+import { formatTime } from "@/lib/calendar";
+import ColorPicker from "@/components/ColorPicker";
+import { useSavedColors } from "@/lib/useSavedColors";
 import { useAuth } from "@/components/AuthProvider";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const EMPTY_COURSE = { name: "", professor: "", semester: "", creditHours: "", colorHex: "#6366f1" };
+const EMPTY_COURSE = {
+  name: "",
+  professor: "",
+  semester: "",
+  startDate: "",
+  endDate: "",
+  creditHours: "",
+  colorHex: "#6366f1",
+};
 
 export default function CoursesPage() {
   const { user, loading } = useAuth();
@@ -18,6 +29,8 @@ export default function CoursesPage() {
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const palette = useSavedColors();
 
   const [scheduleFor, setScheduleFor] = useState(null);
   const [scheduleForm, setScheduleForm] = useState({
@@ -51,6 +64,8 @@ export default function CoursesPage() {
       name: course.name,
       professor: course.professor || "",
       semester: course.semester,
+      startDate: course.startDate || "",
+      endDate: course.endDate || "",
       creditHours: course.creditHours ?? "",
       colorHex: course.colorHex || "#6366f1",
     });
@@ -66,7 +81,16 @@ export default function CoursesPage() {
     const payload = {
       ...form,
       creditHours: form.creditHours === "" ? null : Number(form.creditHours),
+      // An empty date input is "", which the API would reject as a bad date.
+      startDate: form.startDate || null,
+      endDate: form.endDate || null,
     };
+
+    if (payload.startDate && payload.endDate && payload.endDate < payload.startDate) {
+      setBusy(false);
+      setError("The last day of class has to be on or after the first day.");
+      return;
+    }
 
     try {
       if (editingId) {
@@ -165,15 +189,33 @@ export default function CoursesPage() {
               <label className="block text-sm font-medium text-slate-700">Semester</label>
               <input required value={form.semester} onChange={(e) => setForm({ ...form, semester: e.target.value })} className={input} placeholder="Fall 2026" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:col-span-2">
               <div>
-                <label className="block text-sm font-medium text-slate-700">Credits</label>
-                <input type="number" min="0" max="12" value={form.creditHours} onChange={(e) => setForm({ ...form, creditHours: e.target.value })} className={input} />
+                <label className="block text-sm font-medium text-slate-700">First day of class</label>
+                <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className={input} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700">Color</label>
-                <input type="color" value={form.colorHex} onChange={(e) => setForm({ ...form, colorHex: e.target.value })} className="mt-1 h-9 w-full rounded-md border border-slate-300" />
+                <label className="block text-sm font-medium text-slate-700">Last day of class</label>
+                <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className={input} />
               </div>
+              <p className="col-span-2 -mt-1 text-xs text-slate-500">
+                Optional, but without them this course keeps repeating on the calendar
+                for every future week.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700">Credits</label>
+              <input type="number" min="0" max="12" value={form.creditHours} onChange={(e) => setForm({ ...form, creditHours: e.target.value })} className={input} />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-sm font-medium text-slate-700">Color</label>
+              <ColorPicker
+                value={form.colorHex}
+                onChange={(colorHex) => setForm({ ...form, colorHex })}
+                saved={palette.colors}
+                onSave={palette.add}
+                onRemove={palette.remove}
+              />
             </div>
           </div>
 
@@ -209,6 +251,11 @@ export default function CoursesPage() {
                     {course.professor || "No professor listed"} · {course.semester}
                     {course.creditHours ? ` · ${course.creditHours} credits` : ""}
                   </p>
+                  {(course.startDate || course.endDate) && (
+                    <p className="text-xs text-slate-400">
+                      {formatTerm(course.startDate, course.endDate)}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -246,8 +293,9 @@ export default function CoursesPage() {
                   {course.schedules.map((s) => (
                     <li key={s.id} className="flex items-center justify-between text-sm">
                       <span className="text-slate-700">
-                        {DAYS[s.dayOfWeek]} · {s.startTime.slice(0, 5)}–{s.endTime.slice(0, 5)}
+                        {DAYS[s.dayOfWeek]}
                         {s.location ? ` · ${s.location}` : ""}
+                        {` · ${formatTime(s.startTime)} - ${formatTime(s.endTime)}`}
                       </span>
                       <button onClick={() => removeSchedule(course.id, s.id)} className="text-slate-400 hover:text-red-600">
                         Remove
@@ -278,4 +326,21 @@ export default function CoursesPage() {
       </div>
     </div>
   );
+}
+
+/** "Aug 25 - Dec 12, 2026", or one-sided if only one date is set. */
+function formatTerm(startDate, endDate) {
+  const label = (value, withYear) => {
+    if (!value) return null;
+    const [y, m, d] = value.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: withYear ? "numeric" : undefined,
+    });
+  };
+
+  if (startDate && endDate) return `${label(startDate, false)} - ${label(endDate, true)}`;
+  if (startDate) return `Starts ${label(startDate, true)}`;
+  return `Ends ${label(endDate, true)}`;
 }

@@ -78,8 +78,17 @@ say **Running**. If not, right-click → **Start**.
 
 ## 2. Start everything (2 minutes)
 
-**The easy way:** in File Explorer, right-click **`start-dev.ps1`** in the PursuitHQ
-folder → **Run with PowerShell**.
+**The easy way:** open a terminal in VS Code (`Terminal` → `New Terminal`) and run:
+```powershell
+cd "C:\Users\mcken\OneDrive\Desktop\Personal Projects\PursuitHQ"
+.\start-dev.ps1
+```
+The `.\` prefix is required — PowerShell will not run a script from the current
+folder without it.
+
+("Run with PowerShell" only appears in Windows File Explorer, not in VS Code. To
+use it that way, right-click the file in VS Code → **Reveal in File Explorer**,
+then right-click it there.)
 
 It opens two windows (the API and the website), waits for both to boot, then opens
 your browser. Leave both windows open while you work.

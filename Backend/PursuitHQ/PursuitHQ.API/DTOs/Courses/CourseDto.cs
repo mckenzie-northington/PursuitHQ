@@ -1,4 +1,4 @@
-namespace PursuitHQ.API.DTOs.Courses
+﻿namespace PursuitHQ.API.DTOs.Courses
 {
     public class CourseDto
     {
@@ -6,6 +6,10 @@ namespace PursuitHQ.API.DTOs.Courses
         public string Name { get; set; } = string.Empty;
         public string Professor { get; set; } = string.Empty;
         public string Semester { get; set; } = string.Empty;
+
+        /// <summary>First and last day the course meets. Optional.</summary>
+        public DateOnly? StartDate { get; set; }
+        public DateOnly? EndDate { get; set; }
         public int? CreditHours { get; set; }
         public string? ColorHex { get; set; }
         public DateTime CreatedAt { get; set; }

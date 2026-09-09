@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PursuitHQ.API.Data;
 using PursuitHQ.API.DTOs;
@@ -35,6 +35,8 @@ namespace PursuitHQ.API.Controllers
                     Name = c.Name,
                     Professor = c.Professor,
                     Semester = c.Semester,
+                    StartDate = c.StartDate,
+                    EndDate = c.EndDate,
                     CreditHours = c.CreditHours,
                     ColorHex = c.ColorHex,
                     CreatedAt = c.CreatedAt,
@@ -81,6 +83,8 @@ namespace PursuitHQ.API.Controllers
                 Name = dto.Name,
                 Professor = dto.Professor,
                 Semester = dto.Semester,
+                StartDate = dto.StartDate,
+                EndDate = dto.EndDate,
                 CreditHours = dto.CreditHours,
                 ColorHex = dto.ColorHex,
                 CreatedAt = DateTime.UtcNow
@@ -104,6 +108,8 @@ namespace PursuitHQ.API.Controllers
             course.Name = dto.Name;
             course.Professor = dto.Professor;
             course.Semester = dto.Semester;
+            course.StartDate = dto.StartDate;
+            course.EndDate = dto.EndDate;
             course.CreditHours = dto.CreditHours;
             course.ColorHex = dto.ColorHex;
 
@@ -141,6 +147,8 @@ namespace PursuitHQ.API.Controllers
             Name = c.Name,
             Professor = c.Professor,
             Semester = c.Semester,
+            StartDate = c.StartDate,
+            EndDate = c.EndDate,
             CreditHours = c.CreditHours,
             ColorHex = c.ColorHex,
             CreatedAt = c.CreatedAt,

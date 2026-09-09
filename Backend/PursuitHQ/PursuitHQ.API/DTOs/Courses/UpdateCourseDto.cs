@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace PursuitHQ.API.DTOs.Courses
 {
@@ -12,6 +12,10 @@ namespace PursuitHQ.API.DTOs.Courses
 
         [Required, MaxLength(50)]
         public string Semester { get; set; } = string.Empty;
+
+        /// <summary>First and last day the course meets. Optional.</summary>
+        public DateOnly? StartDate { get; set; }
+        public DateOnly? EndDate { get; set; }
 
         [Range(0, 12)]
         public int? CreditHours { get; set; }

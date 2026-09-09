@@ -103,18 +103,6 @@ builder.Services.AddHttpClient<IAiService, GeminiAiService>(client =>
     client.Timeout = TimeSpan.FromSeconds(90);
 });
 
-// Job search runs on Adzuna: a real job feed with a free tier and working
-// links. Gemini's Google Search grounding was the alternative, but it is not
-// available on the free tier at all - it requires billing to be enabled.
-// AI is still used here, just for ranking these real results against a resume,
-// which is a plain completion and works on the free tier.
-builder.Services.Configure<JobSearchOptions>(
-    builder.Configuration.GetSection(JobSearchOptions.SectionName));
-builder.Services.AddHttpClient<IJobSearchService, AdzunaJobSearchService>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(20);
-});
-
 // ---------------------------------------------------------------------------
 // Controllers and Swagger
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-namespace PursuitHQ.API.Models
+﻿namespace PursuitHQ.API.Models
 {
     /// <summary>
     /// Anything on the calendar that is not a class meeting, an assignment due
@@ -16,6 +16,14 @@ namespace PursuitHQ.API.Models
 
         public DateTime StartDateTime { get; set; }
         public DateTime EndDateTime { get; set; }
+
+        /// <summary>
+        /// True for events with no meaningful time of day, such as "Spring
+        /// break" or "Tuition due". The times are still stored - start is
+        /// midnight and end is 23:59:59 on the last day - so range queries
+        /// keep working without a special case.
+        /// </summary>
+        public bool IsAllDay { get; set; }
 
         public string? Location { get; set; }
 

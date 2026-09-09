@@ -18,7 +18,7 @@ The full plan for PursuitHQ — what it does, how it's built, and what it takes 
 
 ## Quick summary
 
-PursuitHQ is a student success platform: courses and a calendar covering classes and other activities, assignments, per-course study materials (files, folders, and typed notes), AI study tools that turn those materials into flashcards, practice quizzes, and study guides, an AI study planner, email reminders for deadlines and schedules, internship and job search plus application tracking, an AI-assisted resume builder, and goals/skills/certifications.
+PursuitHQ is a student success platform: courses and a calendar covering classes and other activities, assignments, per-course study materials (files, folders, and typed notes), AI study tools that turn those materials into flashcards, practice quizzes, and study guides, an AI study planner, email reminders for deadlines and schedules, an AI-assisted resume builder, and goals/skills/certifications.
 
 **Stack:** ASP.NET Core Web API on .NET 10 · Entity Framework Core · PostgreSQL · Next.js · Tailwind CSS
 
@@ -27,10 +27,14 @@ PursuitHQ is a student success platform: courses and a calendar covering classes
 These are recorded so they don't get lost. Update this list as they're settled.
 
 1. ~~**AI provider**~~ — **Decided: Google Gemini**, behind an `IAiService` interface. Free Flash tier for development and personal use; Azure OpenAI on the Azure for Students credit as the production upgrade path. See `Architecture.md` §5d. **Open sub-item:** the free tier uses submitted content to improve Google's products, so before other people use the AI features, either disclose this in a privacy policy or move to a paid tier. Treat as a launch blocker.
-2. **Job-board API** — Adzuna is the leading candidate (free app id and key, documented API). LinkedIn and Indeed do not offer open job-search APIs and must not be scraped.
-3. **Email sending domain** — Resend's free tier covers the volume; a custom sending domain needs DNS records on a domain you control.
-4. **Cold starts** — accept Render free's ~1 minute wake-up, keep the instance warm with the reminder cron, or pay ~$7/month once real users are on it.
+2. ~~**Job-board API**~~ — **Closed: no longer needed.** Job search and the application tracker were built and then removed in September 2026. Adzuna's listings were reliably stale — postings had closed by the time you clicked through — and maintaining a job feed was taking time from the study features. `Roadmap.md` §5 records what was deleted and what was deliberately kept so it can return.
+3. **Time zones** — **Decided for now: stored `DateTime` values are wall-clock times, not instants.** Nothing is converted in either direction; a 9 AM class is 9 AM. This keeps the calendar correct while the app runs on one laptop. It leaves one known gap: "overdue" compares against the server's clock and will be wrong on a UTC host, so `ApplicationUser.TimeZone` has to be wired in before deployment. See `Roadmap.md` §3a.
+4. **Account recovery** — there is no password reset, so five wrong attempts locks you out with no way back except waiting or editing the database. A development-only reset endpoint is the short-term answer; the real flow depends on email sending (Phase 3b).
+5. **Email sending domain** — Resend's free tier covers the volume; a custom sending domain needs DNS records on a domain you control.
+6. **Cold starts** — accept Render free's ~1 minute wake-up, keep the instance warm with the reminder cron, or pay ~$7/month once real users are on it.
 
 ## Keeping these current
 
 If the design changes, update the doc before or alongside the code. These files are the reference another developer reads to understand the project — stale docs are worse than no docs.
+
+These files drifted badly once already: the roadmap still showed the job tracker as finished and the calendar as not started, weeks after the opposite was true. Updating a doc in the same sitting as the code costs a few minutes; reconstructing what happened later costs much more.

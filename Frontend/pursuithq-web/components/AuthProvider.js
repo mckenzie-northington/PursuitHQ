@@ -8,10 +8,11 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { auth, getStoredUser, getToken, setSession, clearSession } from "@/lib/api";
+import { setStoredUser } from "@/lib/api";
 
 const AuthContext = createContext(null);
 
-const PUBLIC_ROUTES = ["/login", "/register"];
+const PUBLIC_ROUTES = ["/login", "/register", "/forgot-password", "/reset-password"];
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -53,6 +54,15 @@ export function AuthProvider({ children }) {
     router.push("/dashboard");
   }
 
+  /**
+   * Replaces the cached profile after it is edited, so the name in the nav bar
+   * changes without a reload and a refresh does not show the old one.
+   */
+  function updateUser(profile) {
+    setUser(profile);
+    setStoredUser(profile);
+  }
+
   function signOut() {
     clearSession();
     setUser(null);
@@ -60,7 +70,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signOut, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

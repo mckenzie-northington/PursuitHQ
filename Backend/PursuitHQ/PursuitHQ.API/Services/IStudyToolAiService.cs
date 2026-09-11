@@ -1,4 +1,4 @@
-namespace PursuitHQ.API.Services
+﻿namespace PursuitHQ.API.Services
 {
     /// <summary>
     /// Turns course material into study tools.
@@ -22,9 +22,46 @@ namespace PursuitHQ.API.Services
         /// </summary>
         Task<List<GeneratedFlashcard>> GenerateFlashcardsAsync(
             string sourceText, string topic, int count, CancellationToken ct = default);
+        /// <summary>
+        /// Writes a practice test from source material.
+        ///
+        /// <paramref name="styleRequest"/> is what the student asked for in
+        /// their own words - "free response", "all multiple choice", "mix of
+        /// true/false and short answer". Passed through rather than parsed
+        /// into an enum, because a model reads "mostly multiple choice but a
+        /// couple of harder written ones" perfectly well and a dropdown never
+        /// will.
+        /// </summary>
+        Task<GeneratedTest> GenerateTestAsync(
+            string sourceText, string topic, int count, string? styleRequest,
+            CancellationToken ct = default);
+
+        /// <summary>
+        /// Judges written answers against the answer key.
+        ///
+        /// Batched into one call: grading ten answers one at a time would be
+        /// ten requests against the rate limit for no benefit.
+        /// </summary>
+        Task<IReadOnlyList<GradedAnswer>> GradeWrittenAnswersAsync(
+            IReadOnlyList<AnswerToGrade> answers, CancellationToken ct = default);
     }
 
     public record GeneratedFlashcard(string Front, string Back);
+
+    public record GeneratedTest(string Title, IReadOnlyList<GeneratedQuestion> Questions);
+
+    /// <param name="Type">multiple_choice, true_false, or short_answer.</param>
+    /// <param name="Options">Only for multiple choice.</param>
+    public record GeneratedQuestion(
+        string Type,
+        string Question,
+        IReadOnlyList<string>? Options,
+        string Answer,
+        string? Explanation);
+
+    public record AnswerToGrade(int Index, string Question, string CorrectAnswer, string GivenAnswer);
+
+    public record GradedAnswer(int Index, bool Correct, string? Feedback);
 
     /// <summary>
     /// The AI produced something we cannot use. Carries a message written for

@@ -25,6 +25,11 @@ export function setSession(token, user) {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
+/** Updates the cached profile without touching the token. */
+export function setStoredUser(user) {
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
 export function getStoredUser() {
   if (typeof window === "undefined") return null;
   const raw = localStorage.getItem(USER_KEY);
@@ -181,6 +186,17 @@ export const auth = {
   register: (data) => api.post("/api/auth/register", data),
   login: (data) => api.post("/api/auth/login", data),
   me: () => api.get("/api/auth/me"),
+  updateProfile: (data) => api.put("/api/auth/me", data),
+
+  /** Requires the current password - the API will not take our word for it. */
+  changePassword: (currentPassword, newPassword) =>
+    api.post("/api/auth/change-password", { currentPassword, newPassword }),
+
+  deleteAccount: () => api.del("/api/auth/me"),
+
+  /** Always succeeds, whether or not the email has an account. */
+  forgotPassword: (email) => api.post("/api/auth/forgot-password", { email }),
+  resetPassword: (data) => api.post("/api/auth/reset-password", data),
 };
 
 export const courses = {
@@ -299,11 +315,26 @@ export const flashcards = {
     api.post(`/api/flashcard-decks/${deckId}/cards/${cardId}/review`, { correct }),
 };
 
+export const quizzes = {
+  list: (courseId) =>
+    api.get(courseId ? `/api/quizzes?courseId=${courseId}` : "/api/quizzes"),
+
+  /** The quiz to sit. Deliberately carries no answers. */
+  get: (id) => api.get(`/api/quizzes/${id}`),
+  generate: (data) => api.post("/api/quizzes/generate", data),
+  remove: (id) => api.del(`/api/quizzes/${id}`),
+
+  /** Submits a whole attempt and gets the marked paper back. */
+  submit: (id, answers) => api.post(`/api/quizzes/${id}/attempts`, { answers }),
+  attempts: (id) => api.get(`/api/quizzes/${id}/attempts`),
+};
+
 export const study = {
   conversations: (courseId) =>
     api.get(courseId ? `/api/study/conversations?courseId=${courseId}` : "/api/study/conversations"),
   conversation: (id) => api.get(`/api/study/conversations/${id}`),
   start: (courseId, title) => api.post("/api/study/conversations", { courseId, title }),
+  rename: (id, title) => api.put(`/api/study/conversations/${id}`, { title }),
   setSources: (id, sourceMaterialIds, sourceNoteIds) =>
     api.put(`/api/study/conversations/${id}/sources`, { sourceMaterialIds, sourceNoteIds }),
   ask: (id, question) => api.post(`/api/study/conversations/${id}/ask`, { question }),

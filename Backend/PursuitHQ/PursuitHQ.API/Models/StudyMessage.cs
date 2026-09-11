@@ -1,4 +1,4 @@
-namespace PursuitHQ.API.Models
+﻿namespace PursuitHQ.API.Models
 {
     /// <summary>One turn in a study conversation.</summary>
     public class StudyMessage
@@ -32,6 +32,10 @@ namespace PursuitHQ.API.Models
         /// <summary>Set once saved, so the button can say "Saved" instead of offering again.</summary>
         public int? SavedStudyGuideId { get; set; }
         public StudyGuide? SavedStudyGuide { get; set; }
+
+        /// <summary>The same, for a practice test.</summary>
+        public int? SavedQuizId { get; set; }
+        public Quiz? SavedQuiz { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }

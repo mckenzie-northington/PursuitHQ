@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PursuitHQ.API.Data;
 using PursuitHQ.API.DTOs;
@@ -133,6 +133,37 @@ namespace PursuitHQ.API.Controllers
             await _db.SaveChangesAsync();
 
             return Ok(ToDto(conversation));
+        }
+
+        /// <summary>
+        /// Renames a session.
+        ///
+        /// The first question becomes the title automatically, which is a
+        /// reasonable guess and often not what you would have called it.
+        /// </summary>
+        [HttpPut("conversations/{id:int}")]
+        public async Task<ActionResult<ConversationSummaryDto>> RenameConversation(
+            int id, RenameConversationDto dto)
+        {
+            var conversation = await _db.StudyConversations
+                .Include(c => c.Course)
+                .Include(c => c.Messages)
+                .FirstOrDefaultAsync(c => c.Id == id && c.UserId == CurrentUserId);
+
+            if (conversation is null) return NotFound(ConversationNotFound());
+
+            conversation.Title = dto.Title.Trim();
+            await _db.SaveChangesAsync();
+
+            return Ok(new ConversationSummaryDto
+            {
+                Id = conversation.Id,
+                CourseId = conversation.CourseId,
+                CourseName = conversation.Course?.Name,
+                Title = conversation.Title,
+                MessageCount = conversation.Messages.Count,
+                UpdatedAt = conversation.UpdatedAt
+            });
         }
 
         [HttpDelete("conversations/{id:int}")]

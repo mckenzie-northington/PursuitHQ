@@ -119,6 +119,13 @@ namespace PursuitHQ.API.Data
                 .HasForeignKey(m => m.SavedStudyGuideId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            // Same for a saved practice test.
+            builder.Entity<StudyMessage>()
+                .HasOne(m => m.SavedQuiz)
+                .WithMany()
+                .HasForeignKey(m => m.SavedQuizId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             builder.Entity<StudyConversation>()
                 .HasIndex(c => new { c.UserId, c.CourseId });
 

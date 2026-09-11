@@ -37,6 +37,14 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
 
+// Password reset links expire after an hour. Identity's default is a day,
+// which is a long time for a link that can take over an account - and if it
+// expires before you get to it, asking for another one costs nothing.
+builder.Services.Configure<DataProtectionTokenProviderOptions>(options =>
+{
+    options.TokenLifespan = TimeSpan.FromHours(1);
+});
+
 // ---------------------------------------------------------------------------
 // JWT authentication
 //

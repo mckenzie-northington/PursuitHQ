@@ -74,6 +74,15 @@ export default function LoginPage() {
             {busy ? "Signing in..." : "Sign in"}
           </button>
 
+          <p className="text-center text-sm">
+            <Link
+              href="/forgot-password"
+              className="font-medium text-indigo-600 hover:underline"
+            >
+              Forgot your password?
+            </Link>
+          </p>
+
           <p className="text-center text-sm text-slate-600">
             No account?{" "}
             <Link href="/register" className="font-medium text-indigo-600 hover:underline">

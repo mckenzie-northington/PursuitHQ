@@ -1,26 +1,119 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Dark mode
+   ---------------------------------------------------------------------------
+   Every page in this app was written with literal colors - bg-white,
+   text-slate-900, border-slate-300 - drawn from one small palette. Rather than
+   revisiting fourteen files to add a dark: variant to each of several hundred
+   class names, this remaps that palette in one place when .dark is on <html>.
+
+   The trade-off, stated plainly so it is not discovered later: this assumes
+   bg-white always means "a surface" and text-slate-900 always means "primary
+   text". That is true today because the palette is used consistently. If a page
+   ever wants something to stay white in dark mode, this is the wrong mechanism
+   for it and that element needs its own explicit colors.
+
+   These rules sit outside @layer, so they beat Tailwind's utilities regardless
+   of specificity.
+--------------------------------------------------------------------------- */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+.dark {
+  /* Makes native controls - scrollbars, date pickers, checkboxes - follow. */
+  color-scheme: dark;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* --- surfaces --- */
+.dark .bg-white { background-color: #1e293b; }
+.dark .bg-slate-50 { background-color: #0f172a; }
+.dark .bg-slate-50\/60 { background-color: rgb(15 23 42 / 0.6); }
+.dark .bg-slate-50\/70 { background-color: rgb(15 23 42 / 0.7); }
+.dark .bg-slate-100 { background-color: #334155; }
+.dark .bg-slate-100\/70 { background-color: rgb(51 65 85 / 0.7); }
+.dark .bg-slate-200 { background-color: #475569; }
+
+.dark .hover\:bg-white:hover { background-color: #1e293b; }
+.dark .hover\:bg-slate-50:hover { background-color: #334155; }
+.dark .hover\:bg-slate-100:hover { background-color: #3f4c62; }
+.dark .hover\:bg-slate-200:hover { background-color: #475569; }
+
+/* --- text --- */
+.dark .text-slate-900 { color: #f1f5f9; }
+.dark .text-slate-800 { color: #e2e8f0; }
+.dark .text-slate-700 { color: #cbd5e1; }
+.dark .text-slate-600 { color: #a3b1c6; }
+.dark .text-slate-500 { color: #94a3b8; }
+.dark .text-slate-400 { color: #7c8ba1; }
+
+.dark .hover\:text-slate-900:hover { color: #f1f5f9; }
+.dark .hover\:text-slate-700:hover { color: #cbd5e1; }
+
+/* --- lines --- */
+.dark .border-slate-100 { border-color: #263449; }
+.dark .border-slate-200 { border-color: #334155; }
+.dark .border-slate-300 { border-color: #475569; }
+.dark .border-slate-400 { border-color: #64748b; }
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #263449; }
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: #334155; }
+.dark .hover\:border-slate-300:hover { border-color: #64748b; }
+.dark .hover\:border-slate-600:hover { border-color: #94a3b8; }
+
+/* --- accents ---
+   Indigo on a dark surface needs to move up the scale to stay readable;
+   600 on slate-800 is too close in luminance. */
+.dark .text-indigo-600 { color: #a5b4fc; }
+.dark .text-indigo-700 { color: #c7d2fe; }
+.dark .bg-indigo-50 { background-color: rgb(99 102 241 / 0.18); }
+.dark .hover\:text-indigo-600:hover { color: #a5b4fc; }
+.dark .hover\:text-indigo-700:hover { color: #c7d2fe; }
+
+/* --- status tints ---
+   Solid pastels look like holes punched in a dark page, so these become
+   translucent washes of the same hue instead. */
+.dark .bg-red-50 { background-color: rgb(239 68 68 / 0.14); }
+.dark .border-red-200 { border-color: rgb(239 68 68 / 0.35); }
+.dark .text-red-700 { color: #fca5a5; }
+.dark .text-red-600 { color: #f87171; }
+.dark .hover\:bg-red-50:hover { background-color: rgb(239 68 68 / 0.18); }
+.dark .hover\:bg-red-100:hover { background-color: rgb(239 68 68 / 0.24); }
+
+.dark .bg-green-50 { background-color: rgb(34 197 94 / 0.14); }
+.dark .border-green-200 { border-color: rgb(34 197 94 / 0.35); }
+.dark .text-green-700 { color: #86efac; }
+.dark .text-green-600 { color: #4ade80; }
+.dark .hover\:bg-green-100:hover { background-color: rgb(34 197 94 / 0.24); }
+
+.dark .bg-amber-50 { background-color: rgb(245 158 11 / 0.14); }
+.dark .border-amber-200 { border-color: rgb(245 158 11 / 0.35); }
+.dark .text-amber-800 { color: #fcd34d; }
+.dark .text-amber-700 { color: #fbbf24; }
+.dark .hover\:bg-amber-200:hover { background-color: rgb(245 158 11 / 0.24); }
+
+.dark .bg-slate-900\/40 { background-color: rgb(2 6 23 / 0.65); }
+
+/* --- form fields ---
+   Inputs default to a white background from the browser, not from a class,
+   so they need setting directly. */
+.dark input,
+.dark textarea,
+.dark select {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b;
+}
+
+.dark input[type="color"] {
+  background-color: transparent;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }

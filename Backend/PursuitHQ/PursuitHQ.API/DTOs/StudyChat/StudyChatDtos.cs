@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using PursuitHQ.API.Models;
 
 namespace PursuitHQ.API.DTOs.StudyChat
@@ -45,6 +45,12 @@ namespace PursuitHQ.API.DTOs.StudyChat
 
         [MaxLength(200)]
         public string? Title { get; set; }
+    }
+
+    public class RenameConversationDto
+    {
+        [Required, MaxLength(200)]
+        public string Title { get; set; } = string.Empty;
     }
 
     public class AskDto

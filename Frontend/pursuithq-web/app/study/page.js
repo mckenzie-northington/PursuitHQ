@@ -7,17 +7,27 @@ import {
   flashcards as flashcardsApi,
   materials as materialsApi,
   notes as notesApi,
+  quizzes as quizzesApi,
   study as studyApi,
 } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import Markdown from "@/components/Markdown";
+import TestPreview from "@/components/TestPreview";
+import { downloadText, safeFileName } from "@/lib/download";
 
 const SUGGESTIONS = [
   "Make me a study guide for the midterm",
+  "Make a free response practice test",
   "Explain the hardest concept in these slides",
-  "Quiz me on this material",
   "What should I focus on first?",
 ];
+
+// Matches StudyArtifactKind in the API.
+const GUIDE = 1;
+const TEST = 2;
+
+/** How many of each thing the sidebar shows before "View all". */
+const SIDEBAR_LIMIT = 3;
 
 export default function StudyPage() {
   const { user, loading } = useAuth();
@@ -28,6 +38,7 @@ export default function StudyPage() {
   const [conversation, setConversation] = useState(null);
   const [conversationList, setConversationList] = useState([]);
   const [guides, setGuides] = useState([]);
+  const [tests, setTests] = useState([]);
   const [sources, setSources] = useState([]);
   const [ai, setAi] = useState(null);
 
@@ -37,8 +48,10 @@ export default function StudyPage() {
   const [error, setError] = useState("");
   const [showSources, setShowSources] = useState(true);
   const [openGuide, setOpenGuide] = useState(null);
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameText, setRenameText] = useState("");
 
-  const bottom = useRef(null);
+  const scroller = useRef(null);
 
   // --- loading -------------------------------------------------------------
 
@@ -67,23 +80,27 @@ export default function StudyPage() {
     if (!courseId) return;
 
     try {
-      const [conversations, guideList, files, noteList] = await Promise.all([
+      const [conversations, guideList, testList, files, noteList] = await Promise.all([
         studyApi.conversations(courseId),
         studyApi.guides(courseId),
+        quizzesApi.list(courseId),
         materialsApi.list(courseId),
         notesApi.list(courseId),
       ]);
 
       setConversationList(conversations);
       setGuides(guideList);
+      setTests(testList);
       setSources([
         ...files.map((f) => ({ key: `m${f.id}`, id: f.id, kind: "material", name: f.fileName })),
         ...noteList.map((n) => ({ key: `n${n.id}`, id: n.id, kind: "note", name: n.title })),
       ]);
 
-      // Pick up the most recent conversation rather than starting a blank one,
-      // which is the whole point of saving them.
-      setConversation(conversations.length > 0 ? await studyApi.conversation(conversations[0].id) : null);
+      // Pick up where you left off rather than starting blank, which is the
+      // whole point of saving conversations.
+      setConversation(
+        conversations.length > 0 ? await studyApi.conversation(conversations[0].id) : null
+      );
       setError("");
     } catch (err) {
       setError(err.message);
@@ -94,11 +111,23 @@ export default function StudyPage() {
     loadCourse();
   }, [loadCourse]);
 
+  // Scroll the message list, not the window - the page itself never grows.
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [conversation?.messages?.length, thinking]);
 
-  // --- actions -------------------------------------------------------------
+  // --- conversation ---------------------------------------------------------
+
+  async function ensureConversation() {
+    if (conversation) return conversation;
+
+    const created = await studyApi.start(courseId);
+    setConversation(created);
+    setConversationList((list) => [created, ...list]);
+
+    return created;
+  }
 
   async function ask(text) {
     const trimmed = (text ?? question).trim();
@@ -111,8 +140,8 @@ export default function StudyPage() {
     try {
       const active = await ensureConversation();
 
-      // Shown immediately with a temporary id; the server's copy arrives with
-      // the reply. Waiting would leave the input empty and nothing on screen.
+      // Shown immediately with a temporary id; the saved copy arrives with the
+      // reply. Waiting would leave the box empty and nothing on screen.
       const pending = {
         id: `pending-${Date.now()}`,
         role: 0,
@@ -125,30 +154,16 @@ export default function StudyPage() {
 
       setConversation((c) => ({ ...c, messages: [...c.messages, reply] }));
       setAi((a) => (a ? { ...a, remaining: a.remaining - 1 } : a));
+
+      // The server may have titled the session from this first question.
+      setConversationList(await studyApi.conversations(courseId));
     } catch (err) {
       setError(err.message);
-      // Drop the optimistic question - it was never saved.
       setConversation((c) =>
         c ? { ...c, messages: c.messages.filter((m) => !String(m.id).startsWith("pending-")) } : c
       );
     } finally {
       setThinking(false);
-    }
-  }
-
-  async function saveGuide(message) {
-    try {
-      const guide = await studyApi.saveArtifact(message.id);
-
-      setGuides((current) => [guide, ...current]);
-      setConversation((c) => ({
-        ...c,
-        messages: c.messages.map((m) =>
-          m.id === message.id ? { ...m, savedStudyGuideId: guide.id } : m
-        ),
-      }));
-    } catch (err) {
-      setError(err.message);
     }
   }
 
@@ -170,22 +185,76 @@ export default function StudyPage() {
     }
   }
 
-  /**
-   * Makes sure there is a conversation to attach things to.
-   *
-   * Choosing your sources before asking anything is the natural order - you
-   * decide what you are working from, then you ask about it - so the
-   * conversation is created the moment it is needed rather than only on the
-   * first question.
-   */
-  async function ensureConversation() {
-    if (conversation) return conversation;
+  function startRename(session) {
+    setRenamingId(session.id);
+    setRenameText(session.title);
+  }
 
-    const created = await studyApi.start(courseId);
-    setConversation(created);
-    setConversationList((list) => [created, ...list]);
+  async function saveRename(e) {
+    e.preventDefault();
+    const title = renameText.trim();
+    if (!title) return;
 
-    return created;
+    try {
+      const updated = await studyApi.rename(renamingId, title);
+
+      setConversationList((list) =>
+        list.map((c) => (c.id === updated.id ? { ...c, title: updated.title } : c))
+      );
+      setConversation((c) => (c && c.id === updated.id ? { ...c, title: updated.title } : c));
+      setRenamingId(null);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function removeConversation(session) {
+    if (!confirm(`Delete "${session.title}" and everything in it?`)) return;
+
+    try {
+      await studyApi.removeConversation(session.id);
+
+      setConversationList((list) => list.filter((c) => c.id !== session.id));
+      if (conversation?.id === session.id) setConversation(null);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  // --- artifacts ------------------------------------------------------------
+
+  async function saveArtifact(message) {
+    try {
+      const saved = await studyApi.saveArtifact(message.id);
+
+      if (message.artifactKind === TEST) {
+        setTests((current) => [saved, ...current]);
+        setConversation((c) => ({
+          ...c,
+          messages: c.messages.map((m) =>
+            m.id === message.id ? { ...m, savedQuizId: saved.id } : m
+          ),
+        }));
+      } else {
+        setGuides((current) => [saved, ...current]);
+        setConversation((c) => ({
+          ...c,
+          messages: c.messages.map((m) =>
+            m.id === message.id ? { ...m, savedStudyGuideId: saved.id } : m
+          ),
+        }));
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function showGuide(guide) {
+    try {
+      setOpenGuide(await studyApi.guide(guide.id));
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   async function toggleSource(item) {
@@ -206,27 +275,7 @@ export default function StudyPage() {
     }
   }
 
-  async function removeGuide(guide) {
-    if (!confirm(`Delete "${guide.title}"?`)) return;
-
-    try {
-      await studyApi.removeGuide(guide.id);
-      setGuides((current) => current.filter((g) => g.id !== guide.id));
-      if (openGuide?.id === guide.id) setOpenGuide(null);
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  async function showGuide(guide) {
-    try {
-      setOpenGuide(await studyApi.guide(guide.id));
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  // --- render --------------------------------------------------------------
+  // --- render ---------------------------------------------------------------
 
   if (loading || !ready) {
     return <div className="mx-auto max-w-6xl px-6 py-10 text-slate-500">Loading...</div>;
@@ -291,23 +340,34 @@ export default function StudyPage() {
         </div>
       )}
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_18rem]">
-        {/* Chat */}
-        <div className="flex min-h-[32rem] flex-col rounded-xl border border-slate-200 bg-white">
-          {/* Sources */}
-          <div className="border-b border-slate-200 px-4 py-2.5">
-            <button
-              onClick={() => setShowSources((s) => !s)}
-              className="text-sm font-medium text-slate-600 hover:text-slate-900"
-            >
-              {selectedIds.size === 0
-                ? "No material attached — click to choose"
-                : `Working from ${selectedIds.size} ${selectedIds.size === 1 ? "source" : "sources"}`}
-              <span className="ml-1 text-slate-400">{showSources ? "▾" : "▸"}</span>
-            </button>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_17rem]">
+        {/*
+          Fixed height, not min-height. The message list scrolls inside this
+          box, so the page stays put however long the conversation gets -
+          the composer never walks off the bottom of the screen.
+        */}
+        <div className="flex h-[calc(100vh-15rem)] min-h-[30rem] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="shrink-0 border-b border-slate-200 px-4 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <button
+                onClick={() => setShowSources((s) => !s)}
+                className="min-w-0 truncate text-left text-sm font-medium text-slate-600 hover:text-slate-900"
+              >
+                {selectedIds.size === 0
+                  ? "No material attached — click to choose"
+                  : `Working from ${selectedIds.size} ${selectedIds.size === 1 ? "source" : "sources"}`}
+                <span className="ml-1 text-slate-400">{showSources ? "▾" : "▸"}</span>
+              </button>
+
+              {conversation && (
+                <span className="shrink-0 truncate text-xs text-slate-400">
+                  {conversation.title}
+                </span>
+              )}
+            </div>
 
             {showSources && (
-              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+              <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">
                 {sources.length === 0 ? (
                   <p className="text-sm text-slate-500">
                     Nothing uploaded to this course yet.{" "}
@@ -341,8 +401,7 @@ export default function StudyPage() {
             )}
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+          <div ref={scroller} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
             {messages.length === 0 && !thinking && (
               <div className="py-10 text-center">
                 <p className="text-slate-600">Ask anything about this course.</p>
@@ -361,7 +420,7 @@ export default function StudyPage() {
             )}
 
             {messages.map((message) => (
-              <Message key={message.id} message={message} onSave={() => saveGuide(message)} />
+              <Message key={message.id} message={message} onSave={() => saveArtifact(message)} />
             ))}
 
             {thinking && (
@@ -370,17 +429,14 @@ export default function StudyPage() {
                 Thinking...
               </div>
             )}
-
-            <div ref={bottom} />
           </div>
 
-          {/* Composer */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
               ask();
             }}
-            className="border-t border-slate-200 p-3"
+            className="shrink-0 border-t border-slate-200 p-3"
           >
             <div className="flex gap-2">
               <input
@@ -401,28 +457,33 @@ export default function StudyPage() {
           </form>
         </div>
 
-        {/* Sidebar */}
+        {/* Sidebar: the few most recent of each, with a way to see the rest. */}
         <div className="space-y-6">
-          <div>
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-slate-900">Conversations</h2>
-              <button
-                onClick={newConversation}
-                className="text-sm font-medium text-indigo-600 hover:underline"
-              >
-                New
-              </button>
-            </div>
-
-            <ul className="mt-2 space-y-1">
-              {conversationList.length === 0 && (
-                <li className="text-sm text-slate-500">None yet.</li>
-              )}
-              {conversationList.map((c) => (
+          <Section
+            title="Sessions"
+            action={{ label: "New", onClick: newConversation }}
+            viewAll={`/courses/${courseId}/sessions`}
+            total={conversationList.length}
+            empty="None yet."
+          >
+            {conversationList.slice(0, SIDEBAR_LIMIT).map((c) =>
+              renamingId === c.id ? (
                 <li key={c.id}>
+                  <form onSubmit={saveRename}>
+                    <input
+                      autoFocus
+                      value={renameText}
+                      onChange={(e) => setRenameText(e.target.value)}
+                      onBlur={() => setRenamingId(null)}
+                      className="w-full rounded-md border border-indigo-400 px-2 py-1 text-sm outline-none"
+                    />
+                  </form>
+                </li>
+              ) : (
+                <li key={c.id} className="group flex items-center gap-0.5">
                   <button
                     onClick={() => openConversation(c.id)}
-                    className={`w-full truncate rounded-md px-2 py-1.5 text-left text-sm transition ${
+                    className={`min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm transition ${
                       conversation?.id === c.id
                         ? "bg-indigo-50 text-indigo-700"
                         : "text-slate-600 hover:bg-slate-100"
@@ -430,39 +491,63 @@ export default function StudyPage() {
                   >
                     {c.title}
                   </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <h2 className="text-sm font-medium text-slate-900">Saved study guides</h2>
-
-            <ul className="mt-2 space-y-1">
-              {guides.length === 0 && (
-                <li className="text-sm text-slate-500">
-                  Ask for a study guide and save it here.
-                </li>
-              )}
-              {guides.map((g) => (
-                <li key={g.id} className="flex items-center gap-1">
                   <button
-                    onClick={() => showGuide(g)}
-                    className="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm text-slate-600 transition hover:bg-slate-100"
+                    onClick={() => startRename(c)}
+                    title="Rename"
+                    className="hidden px-1 text-xs text-slate-400 hover:text-slate-700 group-hover:block"
                   >
-                    {g.title}
+                    ✎
                   </button>
                   <button
-                    onClick={() => removeGuide(g)}
-                    className="px-1 text-xs text-slate-400 transition hover:text-red-600"
-                    aria-label={`Delete ${g.title}`}
+                    onClick={() => removeConversation(c)}
+                    title="Delete"
+                    className="hidden px-1 text-xs text-slate-400 hover:text-red-600 group-hover:block"
                   >
-                    &#10005;
+                    ✕
                   </button>
                 </li>
-              ))}
-            </ul>
-          </div>
+              )
+            )}
+          </Section>
+
+          <Section
+            title="Study guides"
+            viewAll={`/courses/${courseId}/guides`}
+            total={guides.length}
+            empty="Ask for a study guide and save it here."
+          >
+            {guides.slice(0, SIDEBAR_LIMIT).map((g) => (
+              <li key={g.id}>
+                <button
+                  onClick={() => showGuide(g)}
+                  className="w-full truncate rounded-md px-2 py-1.5 text-left text-sm text-slate-600 transition hover:bg-slate-100"
+                >
+                  {g.title}
+                </button>
+              </li>
+            ))}
+          </Section>
+
+          <Section
+            title="Practice tests"
+            viewAll={`/courses/${courseId}/tests`}
+            total={tests.length}
+            empty="Ask for a practice test and save it here."
+          >
+            {tests.slice(0, SIDEBAR_LIMIT).map((t) => (
+              <li key={t.id}>
+                <Link
+                  href={`/tests/${t.id}`}
+                  className="block truncate rounded-md px-2 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100"
+                >
+                  {t.title}
+                  {t.bestScore != null && (
+                    <span className="ml-1 text-slate-400">· best {t.bestScore}%</span>
+                  )}
+                </Link>
+              </li>
+            ))}
+          </Section>
 
           <div>
             <h2 className="text-sm font-medium text-slate-900">Flashcards</h2>
@@ -477,25 +562,79 @@ export default function StudyPage() {
       </div>
 
       {openGuide && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center">
-          <div className="absolute inset-0" onClick={() => setOpenGuide(null)} aria-hidden="true" />
-          <div className="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
-            <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
-              <h2 className="font-medium text-slate-900">{openGuide.title}</h2>
-              <button
-                onClick={() => setOpenGuide(null)}
-                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                aria-label="Close"
-              >
-                &#10005;
-              </button>
-            </div>
-            <div className="px-5 py-4">
-              <Markdown text={openGuide.content} />
-            </div>
+        <GuideReader guide={openGuide} onClose={() => setOpenGuide(null)} />
+      )}
+    </div>
+  );
+}
+
+/** A sidebar block: a few recent items, and a link to the rest. */
+function Section({ title, action, viewAll, total, empty, children }) {
+  const shown = Array.isArray(children) ? children.length : 0;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium text-slate-900">{title}</h2>
+        {action ? (
+          <button
+            onClick={action.onClick}
+            className="text-sm font-medium text-indigo-600 hover:underline"
+          >
+            {action.label}
+          </button>
+        ) : (
+          total > 0 && (
+            <Link href={viewAll} className="text-sm font-medium text-indigo-600 hover:underline">
+              View all
+            </Link>
+          )
+        )}
+      </div>
+
+      <ul className="mt-2 space-y-1">
+        {total === 0 ? <li className="text-sm text-slate-500">{empty}</li> : children}
+      </ul>
+
+      {total > shown && (
+        <Link
+          href={viewAll}
+          className="mt-1 block px-2 text-xs font-medium text-slate-500 hover:text-indigo-600"
+        >
+          View all {total} &rarr;
+        </Link>
+      )}
+    </div>
+  );
+}
+
+function GuideReader({ guide, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center">
+      <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
+      <div className="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+        <div className="sticky top-0 flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-3">
+          <h2 className="min-w-0 truncate font-medium text-slate-900">{guide.title}</h2>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => downloadText(guide.content, safeFileName(guide.title, "md"))}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              Download
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Close"
+            >
+              ✕
+            </button>
           </div>
         </div>
-      )}
+        <div className="px-5 py-4">
+          <Markdown text={guide.content} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -519,7 +658,16 @@ function Message({ message, onSave }) {
         <Markdown text={message.content} />
       </div>
 
-      {message.artifactKind === 1 && message.artifactContent && (
+      {message.artifactKind === TEST && message.artifactContent && (
+        <TestPreview
+          content={message.artifactContent}
+          title={message.artifactTitle}
+          savedQuizId={message.savedQuizId}
+          onSave={onSave}
+        />
+      )}
+
+      {message.artifactKind === GUIDE && message.artifactContent && (
         <div className="rounded-xl border border-slate-200 bg-white">
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-2.5">
             <div className="min-w-0">
@@ -531,18 +679,32 @@ function Message({ message, onSave }) {
               </p>
             </div>
 
-            {message.savedStudyGuideId ? (
-              <span className="shrink-0 rounded-md bg-green-50 px-3 py-1.5 text-sm font-medium text-green-700">
-                Saved
-              </span>
-            ) : (
+            <div className="flex shrink-0 items-center gap-2">
               <button
-                onClick={onSave}
-                className="shrink-0 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-700"
+                onClick={() =>
+                  downloadText(
+                    message.artifactContent,
+                    safeFileName(message.artifactTitle, "md")
+                  )
+                }
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
-                Save
+                Download
               </button>
-            )}
+
+              {message.savedStudyGuideId ? (
+                <span className="rounded-md bg-green-50 px-3 py-1.5 text-sm font-medium text-green-700">
+                  Saved
+                </span>
+              ) : (
+                <button
+                  onClick={onSave}
+                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-700"
+                >
+                  Save
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="max-h-80 overflow-y-auto px-4 py-3">

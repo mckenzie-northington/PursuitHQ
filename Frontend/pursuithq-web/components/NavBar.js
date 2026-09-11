@@ -47,8 +47,18 @@ export default function NavBar() {
           </nav>
         </div>
 
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-slate-600">{user.firstName} {user.lastName}</span>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/settings"
+            title="Settings"
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+              pathname === "/settings"
+                ? "bg-indigo-50 text-indigo-700"
+                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            }`}
+          >
+            {user.firstName}
+          </Link>
           <button
             onClick={signOut}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"

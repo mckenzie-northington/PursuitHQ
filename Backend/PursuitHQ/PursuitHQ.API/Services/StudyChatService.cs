@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Microsoft.Extensions.Options;
 using PursuitHQ.API.Models;
 
@@ -24,6 +24,8 @@ namespace PursuitHQ.API.Services
         // Finding two markers in a text stream cannot fail the same way.
         private const string GuideStart = "===GUIDE===";
         private const string GuideEnd = "===END GUIDE===";
+        private const string TestStart = "===TEST===";
+        private const string TestEnd = "===END TEST===";
         private const string TitlePrefix = "TITLE:";
 
         private readonly IAiService _ai;
@@ -88,8 +90,27 @@ namespace PursuitHQ.API.Services
             sb.AppendLine("(the guide itself, in markdown, with ## headings)");
             sb.Append(GuideEnd).AppendLine();
             sb.AppendLine();
-            sb.AppendLine("Use those markers only for a document worth keeping. A normal answer, an");
-            sb.AppendLine("explanation, or a few practice questions asked in passing are just text.");
+            sb.AppendLine("Use those markers only for a document worth keeping. A normal answer or an");
+            sb.AppendLine("explanation is just text.");
+            sb.AppendLine();
+
+            sb.AppendLine("If the student asks for a practice test, a quiz, or an exam they want to sit and");
+            sb.AppendLine("be scored on, write it between these markers instead, after a one-line");
+            sb.AppendLine("introduction. Build the kind of test they asked for - if they said free");
+            sb.AppendLine("response, write only short_answer questions; if they said multiple choice, only");
+            sb.AppendLine("multiple_choice; if they did not say, use a mix.");
+            sb.AppendLine();
+            sb.Append(TestStart).AppendLine();
+            sb.Append(TitlePrefix).AppendLine(" A short title for the test");
+            sb.AppendLine("[{\"type\": \"multiple_choice\", \"question\": \"...\", \"options\": [\"a\",\"b\",\"c\",\"d\"],");
+            sb.AppendLine("  \"answer\": \"the full text of the right option\", \"explanation\": \"...\"},");
+            sb.AppendLine(" {\"type\": \"true_false\", \"question\": \"...\", \"answer\": \"true\", \"explanation\": \"...\"},");
+            sb.AppendLine(" {\"type\": \"short_answer\", \"question\": \"...\", \"answer\": \"a model answer\", \"explanation\": \"...\"}]");
+            sb.Append(TestEnd).AppendLine();
+            sb.AppendLine();
+            sb.AppendLine("That block must be valid JSON and nothing else. Multiple choice needs exactly 4");
+            sb.AppendLine("options and an answer matching one of them word for word. A couple of questions");
+            sb.AppendLine("asked casually in conversation are just text, not a test.");
             sb.AppendLine();
 
             if (!string.IsNullOrWhiteSpace(request.SourceText))
@@ -135,25 +156,32 @@ namespace PursuitHQ.API.Services
         /// </summary>
         private static StudyChatReply Parse(string raw)
         {
-            var start = raw.IndexOf(GuideStart, StringComparison.OrdinalIgnoreCase);
-            if (start < 0) return new StudyChatReply(raw.Trim(), null);
+            return Extract(raw, GuideStart, GuideEnd, StudyArtifactKind.StudyGuide, "Here is the study guide.")
+                ?? Extract(raw, TestStart, TestEnd, StudyArtifactKind.PracticeTest, "Here is the practice test.")
+                ?? new StudyChatReply(raw.Trim(), null);
+        }
 
-            var bodyStart = start + GuideStart.Length;
-            var end = raw.IndexOf(GuideEnd, bodyStart, StringComparison.OrdinalIgnoreCase);
+        private static StudyChatReply? Extract(
+            string raw, string startMarker, string endMarker,
+            StudyArtifactKind kind, string fallbackIntro)
+        {
+            var start = raw.IndexOf(startMarker, StringComparison.OrdinalIgnoreCase);
+            if (start < 0) return null;
+
+            var bodyStart = start + startMarker.Length;
+            var end = raw.IndexOf(endMarker, bodyStart, StringComparison.OrdinalIgnoreCase);
 
             var body = end < 0 ? raw[bodyStart..] : raw[bodyStart..end];
 
             var (title, content) = SplitTitle(body);
-            if (string.IsNullOrWhiteSpace(content)) return new StudyChatReply(raw.Trim(), null);
+            if (string.IsNullOrWhiteSpace(content)) return null;
 
-            // Whatever the model said before the guide is the reply; anything
+            // Whatever the model said before the marker is the reply; anything
             // after the end marker is dropped as trailing chatter.
             var intro = raw[..start].Trim();
-            if (intro.Length == 0) intro = "Here is the study guide.";
+            if (intro.Length == 0) intro = fallbackIntro;
 
-            return new StudyChatReply(
-                intro,
-                new StudyArtifact(StudyArtifactKind.StudyGuide, title, content.Trim()));
+            return new StudyChatReply(intro, new StudyArtifact(kind, title, content.Trim()));
         }
 
         private static (string Title, string Content) SplitTitle(string body)
@@ -162,15 +190,15 @@ namespace PursuitHQ.API.Services
 
             if (!trimmed.StartsWith(TitlePrefix, StringComparison.OrdinalIgnoreCase))
             {
-                return ("Study guide", trimmed);
+                return ("Untitled", trimmed);
             }
 
             var lineEnd = trimmed.IndexOf('\n');
-            if (lineEnd < 0) return ("Study guide", string.Empty);
+            if (lineEnd < 0) return ("Untitled", string.Empty);
 
             var title = trimmed[TitlePrefix.Length..lineEnd].Trim();
 
-            return (string.IsNullOrWhiteSpace(title) ? "Study guide" : Clip(title, 200),
+            return (string.IsNullOrWhiteSpace(title) ? "Untitled" : Clip(title, 200),
                     trimmed[(lineEnd + 1)..]);
         }
 

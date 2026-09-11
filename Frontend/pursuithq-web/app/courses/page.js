@@ -272,6 +272,12 @@ export default function CoursesPage() {
                 >
                   Flashcards
                 </Link>
+                <Link
+                  href={`/courses/${course.id}/tests`}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  Tests
+                </Link>
                 <button onClick={() => startEdit(course)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
                   Edit
                 </button>

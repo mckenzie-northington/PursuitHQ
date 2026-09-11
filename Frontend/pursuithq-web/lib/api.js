@@ -315,6 +315,24 @@ export const flashcards = {
     api.post(`/api/flashcard-decks/${deckId}/cards/${cardId}/review`, { correct }),
 };
 
+export const resumes = {
+  list: () => api.get("/api/resumes"),
+  get: (id) => api.get(`/api/resumes/${id}`),
+  create: (data) => api.post("/api/resumes", data),
+  update: (id, data) => api.put(`/api/resumes/${id}`, data),
+  remove: (id) => api.del(`/api/resumes/${id}`),
+
+  /** Reads an uploaded PDF or Word file into editable sections. */
+  import: (file) => {
+    const form = new FormData();
+    form.append("file", file);
+    return upload("/api/resumes/import", form);
+  },
+
+  /** Checks the resume. Never edits it. */
+  review: (id) => api.post(`/api/resumes/${id}/review`),
+};
+
 export const dashboard = {
   /** The whole home page in one request. */
   get: () => api.get("/api/dashboard"),

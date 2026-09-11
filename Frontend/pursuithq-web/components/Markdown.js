@@ -14,13 +14,21 @@ import { Fragment } from "react";
  * lists, bold, italics, inline code, fenced code blocks, and paragraphs.
  * Tables, images, and links are shown as plain text.
  */
-export default function Markdown({ text }) {
+/**
+ * @param breaks - keep single newlines as line breaks.
+ *
+ * Markdown normally folds a single newline into a space, which is right for
+ * prose. It is wrong for a resume section someone typed by hand: they pressed
+ * Enter because they wanted a new line, and silently joining those lines makes
+ * the box feel broken.
+ */
+export default function Markdown({ text, breaks = false }) {
   if (!text) return null;
 
-  return <div className="space-y-2 text-sm leading-relaxed">{renderBlocks(text)}</div>;
+  return <div className="space-y-2 text-sm leading-relaxed">{renderBlocks(text, breaks)}</div>;
 }
 
-function renderBlocks(text) {
+function renderBlocks(text, breaks) {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const blocks = [];
 
@@ -30,11 +38,20 @@ function renderBlocks(text) {
 
   const flushParagraph = () => {
     if (paragraph.length === 0) return;
+
     blocks.push(
       <p key={`p-${blocks.length}`} className="text-slate-700">
-        {inline(paragraph.join(" "))}
+        {breaks
+          ? paragraph.map((line, i) => (
+              <Fragment key={i}>
+                {i > 0 && <br />}
+                {inline(line)}
+              </Fragment>
+            ))
+          : inline(paragraph.join(" "))}
       </p>
     );
+
     paragraph = [];
   };
 

@@ -9,6 +9,11 @@ namespace PursuitHQ.API.Services
     /// Builds the merged calendar: class meetings, assignment due dates, study
     /// sessions, and the student's own events, in one sorted list.
     ///
+    /// Study sessions were removed from this feed in September 2026 - nothing
+    /// in the app ever created one, so the source only ever returned nothing.
+    /// The StudySession table is still there, unused, so it can come back
+    /// without a migration.
+    ///
     /// This lives in a service rather than in CalendarController because the
     /// dashboard needs the same answer for "what is on today". Two copies of
     /// this logic would drift, and the calendar and the dashboard disagreeing
@@ -54,7 +59,6 @@ namespace PursuitHQ.API.Services
             {
                 ("classes",        () => GetClassMeetingsAsync(userId, from, to)),
                 ("assignments",    () => GetAssignmentsAsync(userId, from, to)),
-                ("study sessions", () => GetStudySessionsAsync(userId, from, to)),
                 ("events",         () => GetEventsAsync(userId, from, to)),
             })
             {
@@ -186,42 +190,6 @@ namespace PursuitHQ.API.Services
                 SourceId = a.Id,
                 Status = a.Status.ToString(),
                 IsOverdue = a.DueDate < now && a.Status != AssignmentStatus.Completed
-            }).ToList();
-        }
-
-        private async Task<List<CalendarItemDto>> GetStudySessionsAsync(
-            string userId, DateOnly from, DateOnly to)
-        {
-            var sessions = await _db.StudySessions
-                .Where(s => s.UserId == userId
-                    && s.ScheduledDate >= from && s.ScheduledDate <= to)
-                .Select(s => new
-                {
-                    s.Id,
-                    s.CourseId,
-                    s.Title,
-                    s.ScheduledDate,
-                    s.StartTime,
-                    s.EndTime,
-                    s.Status,
-                    CourseName = s.Course != null ? s.Course.Name : null,
-                    ColorHex = s.Course != null ? s.Course.ColorHex : null
-                })
-                .ToListAsync();
-
-            return sessions.Select(s => new CalendarItemDto
-            {
-                Id = $"study-{s.Id}",
-                Type = CalendarItemType.StudySession,
-                Title = s.Title,
-                Subtitle = s.CourseName ?? "Study session",
-                Date = s.ScheduledDate,
-                StartTime = s.StartTime,
-                EndTime = s.EndTime,
-                ColorHex = s.ColorHex,
-                CourseId = s.CourseId,
-                SourceId = s.Id,
-                Status = s.Status.ToString()
             }).ToList();
         }
 

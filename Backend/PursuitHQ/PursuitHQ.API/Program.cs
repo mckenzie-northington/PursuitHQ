@@ -119,6 +119,7 @@ builder.Services.AddScoped<IStudyChatService, StudyChatService>();
 // The merged calendar feed. Scoped, because it holds a DbContext - and because
 // the calendar page and the dashboard must not answer differently.
 builder.Services.AddScoped<ICalendarFeedService, CalendarFeedService>();
+builder.Services.AddScoped<IResumeAiService, ResumeAiService>();
 
 // Singleton so the daily counts survive between requests. In-memory, so they
 // do not survive a restart and would not be shared across instances - fine for

@@ -12,13 +12,17 @@
  * anyone west of Greenwich.
  */
 
-/** Matches CalendarItemType in the API. */
-export const TYPE = { CLASS: 0, ASSIGNMENT: 1, STUDY: 2, EVENT: 3 };
+/**
+ * Matches CalendarItemType in the API.
+ *
+ * 2 was study sessions, removed in September 2026. The number is left out
+ * rather than reused: old rows and any saved state still mean what they meant.
+ */
+export const TYPE = { CLASS: 0, ASSIGNMENT: 1, EVENT: 3 };
 
 export const TYPE_LABEL = {
   0: "Class",
   1: "Assignment",
-  2: "Study session",
   3: "Event",
 };
 
@@ -26,7 +30,6 @@ export const TYPE_LABEL = {
 export const TYPE_COLOR = {
   0: "#6366f1",
   1: "#ef4444",
-  2: "#10b981",
   3: "#0ea5e9",
 };
 

@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/courses", label: "Courses" },
   { href: "/study", label: "Study" },
   { href: "/assignments", label: "Assignments" },
+  { href: "/resume", label: "Resume" },
 ];
 
 export default function NavBar() {

@@ -117,3 +117,62 @@
 body {
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ---------------------------------------------------------------------------
+   Printing a resume
+   ---------------------------------------------------------------------------
+   Ctrl+P on the resume page should produce the resume, not the resume inside
+   the app. Everything is hidden and only the sheet is shown.
+
+   visibility rather than display:none, deliberately: display would collapse the
+   layout and take the sheet's own positioning with it. visibility leaves the
+   boxes in place and simply stops them being painted.
+
+   Dark mode is overridden back to black on white. Nobody wants to print a dark
+   theme, and some browsers would drop the background and leave pale grey text
+   on white paper.
+--------------------------------------------------------------------------- */
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .resume-sheet,
+  .resume-sheet * {
+    visibility: visible;
+  }
+
+  .resume-sheet {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 10.5pt;
+  }
+
+  .resume-sheet * {
+    background: transparent !important;
+    color: #000 !important;
+    border-color: #999 !important;
+  }
+
+  .print-hide {
+    display: none !important;
+  }
+
+  /* A page break in the middle of one job's bullets reads as two jobs. */
+  .resume-entry {
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 0.5in;
+  }
+}

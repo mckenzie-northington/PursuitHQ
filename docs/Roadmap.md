@@ -26,7 +26,10 @@ Phases are ordered by dependency: authentication comes first because nearly ever
 - [x] `[Authorize]` on protected endpoints; Swagger configured to send the bearer token
 - [x] Registration verified end to end — hashed password stored in PostgreSQL
 - [x] Lockout policy wired (5 attempts / 15 minutes)
-- [ ] Password reset flow — deferred until email sending exists in Phase 3b
+- [x] Password reset flow — request a link, set a new password, lockout cleared
+      on success. Identity tokens, one hour lifespan. **The email itself is the
+      only missing piece**: until Phase 3b the link is written to the API log,
+      and returned in the response in Development only
 - [ ] Delete account also removing uploaded files — deferred until file storage exists in Phase 4
 
 **Note on Swashbuckle 10 + Microsoft.OpenApi 2.x:** the JWT Swagger config uses
@@ -34,11 +37,17 @@ Phases are ordered by dependency: authentication comes first because nearly ever
 `OpenApiReference` pattern, and the namespace is `Microsoft.OpenApi` (not
 `Microsoft.OpenApi.Models`). See `Program.cs` if this ever needs revisiting.
 
-**Lockout has no escape hatch yet.** Five wrong passwords locks the account for
-15 minutes, and with no reset flow the only ways back in are waiting or clearing
-`LockoutEnd` and `AccessFailedCount` in pgAdmin by hand. This has already cost
-real time once. A development-only reset endpoint would fix it in an afternoon;
-the proper flow waits on email.
+**Lockout now has an escape hatch.** A successful password reset clears
+`LockoutEnd` and the failed-attempt count, because someone resetting their
+password is very often someone who just locked themselves out guessing at it.
+The pgAdmin unlock is no longer the only way back in.
+
+**On telling callers whether an account exists:** `forgot-password` answers the
+same way for a known and an unknown email in every environment except
+Development, where it says plainly that there is no such account. A silent
+success is indistinguishable from a broken endpoint while you are testing; in
+production the same message would let anyone discover who has signed up, one
+address at a time.
 
 ## Phase 3 — Academic planner ✅
 
@@ -177,7 +186,10 @@ Next.js 16 · React 19 · Tailwind v4 · App Router · JavaScript.
 - [x] Study materials page — folders, uploads, downloads, notes
 - [x] Calendar page — month, week, and day views
 - [x] Shared `ColorPicker` and the saved-colors palette
-- [ ] Settings page (profile, notification preferences)
+- [x] Study section: per-course tutor, sessions, guides, flashcards, tests
+- [x] Settings page: appearance, profile, change password, delete account
+- [x] Dark mode
+- [ ] Notification preferences — waiting on Phase 3b
 
 **Known hardening item:** the JWT is kept in `localStorage`, which is readable
 by any script on the page. Move to an httpOnly cookie before other students
@@ -187,50 +199,99 @@ use PursuitHQ. See `Security.md`.
 client silently dropped a body of `0`, because `0` is falsy. Truthiness checks
 and valid zero values do not mix — the check is `body !== undefined`.
 
+**How dark mode works, and its limit.** Every page was written with literal
+colors — `bg-white`, `text-slate-900` — from one small palette, so `globals.css`
+remaps that palette when `.dark` is on `<html>` rather than adding a `dark:`
+variant to several hundred class names across fourteen files. This assumes
+`bg-white` always means "a surface" and `text-slate-900` always means "primary
+text", which is true today. **A page that ever needs something to stay white in
+dark mode cannot use this mechanism** and needs its own explicit colors. The
+trade-off is written into the top of `globals.css` so it is not rediscovered.
+
+An inline script in `layout.js` applies the saved theme before the first paint.
+React cannot: its first render happens after the browser has drawn, so a
+dark-mode user would see a white flash on every page load.
+
 **Running it locally needs two terminals:**
 `dotnet run` in `PursuitHQ.API` (port 5051) and `npm run dev` in
 `Frontend/pursuithq-web` (port 3000).
 
-## Phase 7 — Dashboard
+## Phase 7 — Dashboard — **the next obvious gap**
+
+The home page is still the stat cards from the first week. It does not know the
+calendar, the study tools, or the tests exist.
 
 - [ ] Aggregated `/api/dashboard` endpoint, so the page makes one request
       rather than six
 - [ ] Dashboard page with widgets and empty states: due this week, today's
-      classes, per-course progress, what is scheduled
+      classes, per-course progress, recent decks and test scores
 
 ## Phase 8 — Career growth
 
 - [ ] Goals, skills, and certifications endpoints and pages
 
-## Phase 9 — AI features — **in progress**
-
-The groundwork is done; the features on top of it are not.
+## Phase 9 — AI features ✅ (study tools)
 
 - [x] Gemini API key from Google AI Studio; stored in user-secrets locally
 - [x] `IAiService` + `GeminiAiService` with a typed HttpClient and a 90-second timeout
 - [x] `ITextExtractionService` for PDF, DOCX, PPTX — **built early in Phase 4** for
       file previews, deliberately, so it would be ready to reuse here
-- [ ] Structured JSON output with schema validation; reject malformed items
-- [ ] 429 handling surfaced as a readable "service busy" message
-- [ ] Per-user rate limiting on every AI endpoint
-- [ ] `StudyToolAiService`: flashcards, quizzes, study guides
-- [ ] Flashcard review mode and quiz-taking UI with scored attempts
-- [ ] Chunking/truncation for large documents, with the user told what was used
-- [ ] Graceful failure everywhere: no partial decks or quizzes
+- [x] Structured output with validation; malformed items are dropped, not shown
+- [x] Retry and rate-limit handling, surfaced as sentences a student can act on
+- [x] Per-user daily cap (`IAiUsageLimiter`, `Ai:RequestsPerUserPerDay`)
+- [x] `StudyToolAiService`: flashcards and practice tests
+- [x] `StudyChatService`: a per-course tutor that answers from attached material
+      and writes study guides on request
+- [x] Flashcard review with self-grading and per-card counters
+- [x] Practice tests taken in the app, with AI grading for written answers
+- [x] Truncation for large documents (40k characters of source per request)
+- [x] Graceful failure: no partial decks, no unsaved-but-shown guides
 - [ ] `StudyPlannerAiService` and study session endpoints
 - [ ] `ResumeAiService`: content suggestions + format check, and the resume editor
 
-**Study tools are the next thing being built.** The entities already exist
-(`FlashcardDeck`, `Flashcard`, `Quiz`, `QuizQuestion`, `QuizAttempt`,
-`QuizAnswer`, `StudyGuide`), text extraction already works, and the Gemini client
-is already registered — so this is prompt writing, JSON validation, and the
-review UI rather than new infrastructure.
+**How the three tools reach the student**
 
-**A decision worth remembering:** Gemini with Google Search grounding was tried
-during the job-search work and abandoned. Grounding is **not available on the
-Gemini free tier at all** — it requires billing to be enabled, after which 5,000
-search requests a month are free. Plain Gemini completions *are* free, and plain
-completions are all the study tools need.
+| Tool | Made from | Where |
+|---|---|---|
+| Flashcards | one file or note | `/courses/{id}/flashcards`, reviewed at `/decks/{id}` |
+| Practice tests | one file or note, or asked for in chat | `/courses/{id}/tests`, taken at `/tests/{id}` |
+| Study guides | asked for in chat | saved to `/courses/{id}/guides` |
+
+**Decisions worth remembering**
+
+*Artifacts are wrapped in text markers, not JSON.* A study guide is long markdown
+full of quotes and newlines, and asking a model to escape all of that inside a
+JSON string is exactly where these things break. Finding two markers in a text
+stream cannot fail the same way. Practice tests use JSON inside those markers,
+because questions are short and structure matters more there.
+
+*Nothing is saved unless it is usable and wanted.* A deck with no valid cards is
+not saved at all — a deck of three broken cards is worse than none, because it
+looks finished. A study guide stays in the conversation until the student presses
+Save, so the library only holds things that were deliberately kept.
+
+*Grading never guesses in the student's favour.* An answer the model returns no
+verdict for is marked wrong with an explanation. If grading fails outright, or the
+daily allowance is gone, the test is still scored and returned with those answers
+flagged — rather than throwing the submission away.
+
+*Question types are sent as a sentence, not flags.* The UI toggles build a phrase
+like "Use only these question types: multiple choice and free response", and a
+free-text box sits beside it. A model reads "mostly multiple choice with two
+written ones at the end" perfectly well; a dropdown never could.
+
+*429 is retried, 500 is retried, and the difference matters.* The free tier limits
+requests per **minute**, and Gemini reports how long to wait — so a 429 now costs
+about 18 seconds instead of a failure. An earlier version excluded 429 on the
+theory that a quota will not clear in seconds; that was wrong. Waits longer than
+30 seconds still fail fast, because those are real daily quotas.
+
+*Grounding was tried and abandoned.* Gemini with Google Search grounding is **not
+available on the free tier at all** — it needs billing enabled. Plain completions
+are what the study tools use.
+
+**Billing is now enabled** with $10 of credit, which lifted the 20-requests-per-
+minute ceiling. Roughly a penny per request; see `START-HERE.md` §5a.
 
 ## Phase 9a — Internship & job search — **removed**
 

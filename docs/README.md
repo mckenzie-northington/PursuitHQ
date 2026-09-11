@@ -18,7 +18,7 @@ The full plan for PursuitHQ — what it does, how it's built, and what it takes 
 
 ## Quick summary
 
-PursuitHQ is a student success platform: courses and a calendar covering classes and other activities, assignments, per-course study materials (files, folders, and typed notes), AI study tools that turn those materials into flashcards, practice quizzes, and study guides, an AI study planner, email reminders for deadlines and schedules, an AI-assisted resume builder, and goals/skills/certifications.
+PursuitHQ is a student success platform: courses and a calendar covering classes and other activities, assignments, per-course study materials (files, folders, and typed notes), AI study tools that turn those materials into flashcards, practice tests and study guides plus a per-course tutor you can ask questions, an AI study planner, email reminders for deadlines and schedules, an AI-assisted resume builder, and goals/skills/certifications.
 
 **Stack:** ASP.NET Core Web API on .NET 10 · Entity Framework Core · PostgreSQL · Next.js · Tailwind CSS
 
@@ -26,12 +26,13 @@ PursuitHQ is a student success platform: courses and a calendar covering classes
 
 These are recorded so they don't get lost. Update this list as they're settled.
 
-1. ~~**AI provider**~~ — **Decided: Google Gemini**, behind an `IAiService` interface. Free Flash tier for development and personal use; Azure OpenAI on the Azure for Students credit as the production upgrade path. See `Architecture.md` §5d. **Open sub-item:** the free tier uses submitted content to improve Google's products, so before other people use the AI features, either disclose this in a privacy policy or move to a paid tier. Treat as a launch blocker.
+1. ~~**AI provider**~~ — **Decided: Google Gemini** (`gemini-3.8-flash`), behind an `IAiService` interface. **Billing is now enabled**, which lifted the free tier's 20-requests-per-minute ceiling; cost is roughly a penny per request. See `Architecture.md` §5d and `START-HERE.md` §5a. **Open sub-item:** check whether the paid tier still trains on submitted content before anyone else uses the AI features — that was true of the free tier and is a launch blocker either way, needing a privacy disclosure.
 2. ~~**Job-board API**~~ — **Closed: no longer needed.** Job search and the application tracker were built and then removed in September 2026. Adzuna's listings were reliably stale — postings had closed by the time you clicked through — and maintaining a job feed was taking time from the study features. `Roadmap.md` §5 records what was deleted and what was deliberately kept so it can return.
 3. **Time zones** — **Decided for now: stored `DateTime` values are wall-clock times, not instants.** Nothing is converted in either direction; a 9 AM class is 9 AM. This keeps the calendar correct while the app runs on one laptop. It leaves one known gap: "overdue" compares against the server's clock and will be wrong on a UTC host, so `ApplicationUser.TimeZone` has to be wired in before deployment. See `Roadmap.md` §3a.
-4. **Account recovery** — there is no password reset, so five wrong attempts locks you out with no way back except waiting or editing the database. A development-only reset endpoint is the short-term answer; the real flow depends on email sending (Phase 3b).
+4. ~~**Account recovery**~~ — **Built.** Request a link, set a new password, lockout cleared on success; tokens expire after an hour. The only missing piece is sending the email, which Phase 3b supplies — until then the link is logged by the API and shown on screen in development. Related decision: `forgot-password` reveals whether an account exists **only** in Development, because in production that would let anyone enumerate who has signed up.
 5. **Email sending domain** — Resend's free tier covers the volume; a custom sending domain needs DNS records on a domain you control.
 6. **Cold starts** — accept Render free's ~1 minute wake-up, keep the instance warm with the reminder cron, or pay ~$7/month once real users are on it.
+7. **Dark mode is palette remapping, not per-element theming.** One CSS file rewrites the app's small colour palette when `.dark` is set, rather than a `dark:` variant on every class in fourteen files. It holds as long as `bg-white` always means "a surface". The first page that needs something to stay white in dark mode is the signal to revisit this. See the note at the top of `globals.css`.
 
 ## Keeping these current
 

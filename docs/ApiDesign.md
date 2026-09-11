@@ -59,6 +59,18 @@ List endpoints accept `?page=1&pageSize=25` (default 25, max 100) and return:
 
 ---
 
+
+### Password reset
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/auth/forgot-password` | Start a reset. Answers the same way for a known and unknown email, except in Development |
+| POST | `/api/auth/reset-password` | Check the token and set the new password. Clears any lockout on success |
+
+Tokens are Identity's own, expire after an hour, and work once. The reset link is
+logged by the API and returned in the response **only** in Development, until
+email sending exists (Phase 3b).
+
 ## Courses — `/api/courses`
 
 | Method | Route | Description |
@@ -138,19 +150,75 @@ List endpoints accept `?page=1&pageSize=25` (default 25, max 100) and return:
 
 ---
 
-## Job applications — `/api/applications`
+## Job applications — *removed*
 
-| Method | Route | Description |
+Built, then removed in September 2026 along with job search. See `Roadmap.md` §5.
+The `JobApplication` table was kept so the feature can return without a migration.
+
+## Preferences — `/api/preferences`
+
+| Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/applications` | List. Filters: `?status=`, `?type=`, `?search=`. |
-| GET | `/api/applications/{id}` | One application. |
-| POST | `/api/applications` | Body: company, role, type, status, appliedDate, notes?. |
-| PUT | `/api/applications/{id}` | Update, including status transitions. |
-| DELETE | `/api/applications/{id}` | Delete. |
+| GET | `/colors` | The student's saved colour palette |
+| PUT | `/colors` | Replace it. Every value must be a hex colour — these go straight into a style attribute, so this is the boundary where that has to be true |
 
----
+## Study chat — `/api/study`
 
-## Resumes — `/api/resumes`
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/conversations?courseId=` | Sessions, newest first |
+| POST | `/conversations` | Start one |
+| GET | `/conversations/{id}` | One session with its messages and chosen sources |
+| PUT | `/conversations/{id}` | Rename |
+| PUT | `/conversations/{id}/sources` | Choose which files and notes are in context. Ids not owned by the caller in that course are silently dropped |
+| POST | `/conversations/{id}/ask` | Ask a question; returns the reply. Both turns are saved before responding |
+| DELETE | `/conversations/{id}` | Delete the session and its messages |
+| POST | `/messages/{id}/save` | Keep what a reply produced — a study guide or a practice test |
+| GET | `/guides?courseId=` | Saved study guides |
+| GET | `/guides/{id}` | One guide, with its markdown |
+| DELETE | `/guides/{id}` | Delete it |
+
+A reply carries `artifactKind` (0 none, 1 study guide, 2 practice test) and the
+artifact itself. It stays on the message until saved, so the library only holds
+what was deliberately kept.
+
+## Flashcards — `/api/flashcard-decks`
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/ai-status` | Whether AI is configured, and how much of today's allowance is left |
+| GET | `?courseId=` | Decks |
+| GET | `/{id}` | One deck with its cards |
+| POST | `/generate` | Write a deck from one file or note |
+| PUT | `/{id}` | Rename |
+| DELETE | `/{id}` | Delete |
+| POST | `/{deckId}/cards` | Add a card by hand |
+| PUT | `/{deckId}/cards/{cardId}` | Edit |
+| DELETE | `/{deckId}/cards/{cardId}` | Delete |
+| POST | `/{deckId}/cards/{cardId}/review` | Record right or wrong |
+
+Generation saves nothing unless at least one card survived validation.
+
+## Practice tests — `/api/quizzes`
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `?courseId=` | Tests, with attempt count and best score |
+| GET | `/{id}` | The test to sit — **no answers, no explanations** |
+| POST | `/generate` | Write one. `style` is free text describing the kind of test wanted |
+| DELETE | `/{id}` | Delete the test and its attempts |
+| POST | `/{id}/attempts` | Submit answers; returns the marked paper |
+| GET | `/{id}/attempts` | Past scores |
+
+`GET /{id}` deliberately omits `correctAnswer` and `explanation`. Anything the
+browser receives, the student can read, and a test you can peek at is not a test.
+The key comes back with the results.
+
+Written answers are graded by AI in one batched call. A blank is marked wrong
+without spending a request; a grading failure still returns a scored paper with
+those answers flagged.
+
+## Resumes — `/api/resumes`## Resumes — `/api/resumes`
 
 | Method | Route | Description |
 |---|---|---|

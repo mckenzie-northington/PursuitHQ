@@ -163,10 +163,24 @@ reason something "isn't working" — see §6.
 - **Study materials** — nested folders, drag-and-drop upload, move files between
   folders, inline preview (images, PDFs, text, and extracted text from Word /
   PowerPoint / Excel), typed notes, course-wide search, storage quota
-- **Dashboard** — counts, upcoming assignments, course list
-- **Database** — 30 tables in PostgreSQL, every table modeled and migrated
+- **Flashcards** — generated from a file or note, reviewed one card at a time
+  with a self-grade, editable. Per-card counters show what you keep missing
+- **Study chat** — a per-course tutor at `/study`. Attach files and notes, ask
+  questions, ask for a study guide. Sessions are saved per course and can be
+  renamed or deleted; guides download as markdown
+- **Practice tests** — pick the question types and how many, or ask in chat.
+  Taken in the app and scored: multiple choice and true/false instantly, written
+  answers graded on meaning by AI with a sentence of feedback on each
+- **Settings** — light/dark/system theme, profile, change password (needs your
+  current one), delete account
+- **Password reset** — request a link and set a new password; a successful reset
+  also clears any lockout. Until email exists the link is printed in the API
+  terminal and shown on screen in development
+- **Dashboard** — counts, upcoming assignments, course list (still the oldest
+  page in the app)
+- **Database** — 32 tables in PostgreSQL, every table modeled and migrated
 
-Phases 0–4 and 6 are complete, plus the calendar (Phase 3a).
+Phases 0–4, 6 and 9 are complete, plus the calendar (Phase 3a).
 
 **Removed on purpose:** the job tracker and job search. Every posting the search
 returned had already closed by the time you clicked it, and it was eating the time
@@ -177,33 +191,26 @@ what was kept so it could come back later.
 
 ## 5. What you are building next
 
-**Phase 9 — AI study tools.** Upload a PDF, Word doc, or PowerPoint to a course
-and turn it into flashcards, a practice quiz, or a study guide.
-
-This is mostly assembly rather than new infrastructure:
-
-- `ITextExtractionService` already pulls text out of PDF, DOCX, PPTX, and XLSX
-- `IAiService` / `GeminiAiService` already talk to Gemini and are registered
-- The tables already exist: `FlashcardDeck`, `Flashcard`, `Quiz`, `QuizQuestion`,
-  `QuizAttempt`, `QuizAnswer`, `StudyGuide`
-
-What is missing is the controller, the prompts, validation of what comes back, and
-the review UI. Plain Gemini completions are free, so nothing here needs billing.
-
-**Build it one tool at a time, end to end.** Flashcards first — generate, save,
-review — then quizzes, then study guides. Three half-finished features are much
-harder to debug than one finished one.
+**Phase 7 — the dashboard.** It is the page you land on every time and the only
+one that has not been touched since week one. It knows nothing about the
+calendar, the study tools, or your test scores. Worth one aggregated
+`/api/dashboard` endpoint so the page makes a single request rather than six.
 
 Other things queued up, none blocking the others:
 
-- **Phase 7 — Dashboard.** One aggregated endpoint and a page worth opening every
-  morning.
-- **Phase 3b — Email reminders.** Needs a Resend account, a verified sending
-  domain, and an external cron. More setup than code, and parts cannot be tested
-  locally.
-- **Study session UI.** They already show on the calendar and already have a
-  table, but nothing can create one yet.
-- **Settings page.** Profile and, once reminders exist, notification preferences.
+- **Study session UI.** Planned study blocks already render on the calendar and
+  already have a table, but nothing in the app can create one. A visible gap.
+- **Phase 3b — Email reminders.** Assignment and event reminders plus a digest —
+  and it makes password reset real, since the link would arrive by email instead
+  of the API log. Needs a Resend account, a verified sending domain, and an
+  external cron. More setup than code, and parts cannot be tested locally.
+- **Phase 8 — Career growth.** Goals, skills, and certifications.
+- **Resume tools.** `ResumeAiService` and the editor, the last unbuilt piece of
+  Phase 9.
+
+**Build one thing end to end before starting the next.** Flashcards, then the
+chat, then practice tests each went generate → save → use before the next began.
+Three half-finished features are far harder to debug than one finished one.
 
 ---
 
@@ -213,15 +220,30 @@ Lives in user-secrets, outside the project, so it is not in git:
 
 | Key | What it powers | Cost |
 |---|---|---|
-| `Ai:ApiKey` | Gemini, for the study tools | Free tier |
+| `Ai:ApiKey` | Gemini, for every study tool | ~1¢ per request |
 
 Also in user-secrets: `ConnectionStrings:DefaultConnection` and `Jwt:Key`.
 
 Check them with `dotnet user-secrets list` from the `PursuitHQ.API` folder.
 
-**Known limit:** Gemini's Google Search grounding requires billing to be enabled
-and is not available on the free tier. Plain completions are free, which is
-everything the study tools need.
+**Billing is enabled**, with $10 of credit on it. That was not for cost — the
+free tier caps you at 20 requests per *minute*, shared across flashcards, chat
+and tests, which is easy to hit in one sitting. Paying lifts that ceiling.
+
+Rough costs at current prices: a flashcard deck ~1.3¢, a chat question ~0.8¢, a
+study guide ~1.4¢. Maxing out the app's own 30-a-day cap every day would be about
+$11 a month; realistic use is closer to $1.50. **Prices double on 1 January 2027.**
+
+The cost driver is attached material: every chat message re-sends the full text
+of every attached file, so a long conversation pays for the same PDFs repeatedly.
+If a bill ever looks wrong, look there first.
+
+**Worth setting:** a $5/month budget alert in Google Cloud Billing. Normal use
+will not come near it; the risk is a bug retrying in a loop.
+
+**The app's own cap** is `Ai:RequestsPerUserPerDay` in `appsettings.json`,
+currently 30. It is a guard against runaway loops, not a budget control. Change
+the number and restart — no rebuild, it is config.
 
 ---
 
@@ -311,6 +333,10 @@ the same blocked delete forever.
 | Swagger says `FolderNotFound` on an optional field | Swagger pre-fills optional numbers with `0`, and there is no id 0 | Clear the field before executing |
 | Editor shows red errors but code looks fine | Language server is stale | Ctrl+Shift+P → **Developer: Reload Window**. Trust `dotnet build`, not squiggles |
 | npm command blocked by PowerShell | Execution policy | Already fixed — `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
+| A new endpoint returns 401 or 404 | The API was never rebuilt after the code was written | Check the timestamps: `bin\Debug\net10.0\PursuitHQ.API.dll` must be newer than the `.cs` file. Rebuild |
+| Gemini: "exceeded your current quota ... limit: 20" | The free tier's per-**minute** cap, not a daily one | It clears in seconds and is retried automatically now. If it persists, billing is not on the same Google Cloud project as the API key |
+| Gemini returns 200 but the app says "empty answer" | The response shape did not match any known path | The API log prints the raw JSON — look for the `warn` line starting "Gemini returned a success with no readable text" |
+| Something looks wrong only in dark mode | An element assumed a light background | See the note at the top of `globals.css`; that element needs its own explicit colors |
 
 ---
 
@@ -318,9 +344,9 @@ the same blocked delete forever.
 
 Tracked in `docs/README.md`, repeated here so they are not forgotten:
 
-- **No password reset.** Five wrong attempts locks you out and the only way back
-  in is waiting or editing the database by hand. A development-only reset endpoint
-  would solve it now; the real flow waits on email in Phase 3b.
+- **Password reset works, but the email does not send.** The link is printed in
+  the API terminal and shown on screen in development. Phase 3b turns that into a
+  real email; nothing else about the flow changes.
 - **The JWT is stored in `localStorage`.** Readable by any script on the page. Move
   to an httpOnly cookie before other students use PursuitHQ.
 - **"Overdue" uses the server's clock.** Correct on your laptop, wrong on a UTC
@@ -340,10 +366,11 @@ Tracked in `docs/README.md`, repeated here so they are not forgotten:
 
 Give Claude this context and you will get straight back into it:
 
-> I'm working on PursuitHQ. Phases 0–4 and 6 are done, plus the calendar (Phase
-> 3a). The job tracker and job search were removed on purpose. I'm starting Phase
-> 9, the AI study tools — flashcards, quizzes, and study guides generated from
-> uploaded course materials. Check `docs/Roadmap.md` and `docs/START-HERE.md` for
+> I'm working on PursuitHQ. Phases 0–4, 6 and 9 are done, plus the calendar
+> (Phase 3a): the AI study tools all work — flashcards, a per-course study chat,
+> and practice tests with AI grading. Settings, dark mode and password reset are
+> done too. The job tracker and job search were removed on purpose. Next is
+> Phase 7, the dashboard. Check `docs/Roadmap.md` and `docs/START-HERE.md` for
 > where I am.
 
 Everything is documented in `docs/`. Nothing about this project lives only in

@@ -315,6 +315,11 @@ export const flashcards = {
     api.post(`/api/flashcard-decks/${deckId}/cards/${cardId}/review`, { correct }),
 };
 
+export const dashboard = {
+  /** The whole home page in one request. */
+  get: () => api.get("/api/dashboard"),
+};
+
 export const quizzes = {
   list: (courseId) =>
     api.get(courseId ? `/api/quizzes?courseId=${courseId}` : "/api/quizzes"),

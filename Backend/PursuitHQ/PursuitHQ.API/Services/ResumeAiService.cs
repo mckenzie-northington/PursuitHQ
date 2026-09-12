@@ -92,8 +92,25 @@ namespace PursuitHQ.API.Services
             sb.AppendLine("  \"experience\": [{\"title\":\"\",\"organization\":\"\",\"location\":\"\",");
             sb.AppendLine("                   \"startDate\":\"\",\"endDate\":\"\",\"bullets\":[]}],");
             sb.AppendLine("  \"projects\": [{\"name\":\"\",\"link\":\"\",\"technologies\":\"\",\"bullets\":[]}],");
-            sb.AppendLine("  \"skills\": []");
+            sb.AppendLine("  \"skillsText\": \"\",");
+            sb.AppendLine("  \"custom\": [{\"title\":\"\",\"body\":\"\"}],");
+            sb.AppendLine("  \"layout\": []");
             sb.AppendLine("}");
+            sb.AppendLine();
+            sb.AppendLine("\"skillsText\" is the skills section copied as written - keep the student's");
+            sb.AppendLine("own commas, line breaks and groupings. Start a line with \"-\" where it was a");
+            sb.AppendLine("bullet, and wrap a word in **stars** where it was bold.");
+            sb.AppendLine();
+            sb.AppendLine("\"custom\" is for every section that is not one of the six above: things");
+            sb.AppendLine("like Certifications, Awards, Leadership, Activities, Coursework,");
+            sb.AppendLine("Publications, Volunteering. Never drop a section because it does not fit -");
+            sb.AppendLine("put it here with its heading as \"title\" and its lines as \"body\", one per");
+            sb.AppendLine("line, with the same \"-\" and **stars**. Everything on the page has to end");
+            sb.AppendLine("up somewhere.");
+            sb.AppendLine();
+            sb.AppendLine("\"layout\" lists the sections in the order they appear on the page, each as");
+            sb.AppendLine("either summary, education, experience, projects, skills, or a custom");
+            sb.AppendLine("section's exact title. Contact details are the header and are not listed.");
             sb.AppendLine();
             sb.AppendLine("RESUME:");
             sb.AppendLine("---");
@@ -176,8 +193,13 @@ namespace PursuitHQ.API.Services
             sb.AppendLine("                 \"issue\":\"\",\"suggestion\":\"\",\"example\":\"\"}]");
             sb.AppendLine("}");
             sb.AppendLine();
-            sb.AppendLine("\"section\" is one of: contact, summary, education, experience, projects, skills.");
+            sb.AppendLine("\"section\" is one of: contact, summary, education, experience, projects,");
+            sb.AppendLine("skills, or format for anything in a section the student added themselves.");
             sb.AppendLine("\"severity\" is one of: high, medium, low.");
+            sb.AppendLine();
+            sb.AppendLine("Sections under \"custom\" are the student's own headings - read them like");
+            sb.AppendLine("any other section. \"layout\" is the order the sections print in; anything");
+            sb.AppendLine("missing from it has been taken off the resume, so do not comment on it.");
             sb.AppendLine();
             sb.AppendLine("RESUME:");
             sb.AppendLine("---");
@@ -274,8 +296,89 @@ namespace PursuitHQ.API.Services
             }
 
             resume.Skills = ClipAll(resume.Skills, 100, 60);
+            resume.SkillsText = Clip(resume.SkillsText, 4000);
+
+            // Whichever of the two the model filled in, the resume opens with
+            // skills in it rather than with an empty section.
+            if (string.IsNullOrWhiteSpace(resume.SkillsText) && resume.Skills.Count > 0)
+            {
+                resume.SkillsText = string.Join(", ", resume.Skills);
+            }
+
+            resume.Custom = (resume.Custom ?? new List<CustomSectionDto>()).Take(12).ToList();
+
+            foreach (var section in resume.Custom)
+            {
+                // The model has no idea what id we will use, so it never sends
+                // one worth keeping.
+                section.Id = NewSectionId();
+                section.Title = Clip(section.Title, 120);
+                section.Body = Clip(section.Body, 8000);
+            }
+
+            resume.Custom = resume.Custom
+                .Where(s => !string.IsNullOrWhiteSpace(s.Title) || !string.IsNullOrWhiteSpace(s.Body))
+                .ToList();
+
+            resume.Layout = BuildLayout(resume);
 
             return resume;
+        }
+
+        private static string NewSectionId() => "s" + Guid.NewGuid().ToString("N")[..8];
+
+        /// <summary>
+        /// Turns the order the model reported into section keys.
+        ///
+        /// It names custom sections by their heading, because it has not seen
+        /// the ids. Anything it names that is not a real section is dropped, and
+        /// anything real that it left out is appended - so the result is always
+        /// a complete, valid layout however loosely the model answered, and a
+        /// section can never go missing because of a typo in a heading.
+        /// </summary>
+        private static List<string> BuildLayout(ResumeContentDto resume)
+        {
+            var known = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["summary"] = "summary",
+                ["education"] = "education",
+                ["experience"] = "experience",
+                ["work experience"] = "experience",
+                ["projects"] = "projects",
+                ["skills"] = "skills"
+            };
+
+            foreach (var section in resume.Custom)
+            {
+                if (string.IsNullOrWhiteSpace(section.Title)) continue;
+
+                // TryAdd, so a custom section called "Skills" cannot take the
+                // built-in one's place in the order.
+                known.TryAdd(section.Title!, $"custom:{section.Id}");
+            }
+
+            var layout = new List<string>();
+
+            foreach (var name in resume.Layout ?? new List<string>())
+            {
+                if (known.TryGetValue((name ?? "").Trim(), out var key) && !layout.Contains(key))
+                {
+                    layout.Add(key);
+                }
+            }
+
+            foreach (var key in new[] { "summary", "education", "experience", "projects", "skills" })
+            {
+                if (!layout.Contains(key)) layout.Add(key);
+            }
+
+            foreach (var section in resume.Custom)
+            {
+                var key = $"custom:{section.Id}";
+                if (!layout.Contains(key)) layout.Add(key);
+            }
+
+            return layout;
         }
 
         /// <summary>

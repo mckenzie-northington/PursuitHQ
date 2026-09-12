@@ -38,7 +38,57 @@ namespace PursuitHQ.API.DTOs.Resumes
         public List<EducationDto> Education { get; set; } = new();
         public List<ExperienceDto> Experience { get; set; } = new();
         public List<ProjectDto> Projects { get; set; } = new();
+
+        /// <summary>
+        /// Skills as free text, typed however the student likes.
+        ///
+        /// Stored as plain text, not HTML. The only markup is ** for bold and a
+        /// leading "-" for a bullet, and the page turns those into elements
+        /// itself - so nothing typed or pasted in here can become markup when
+        /// the resume is rendered.
+        /// </summary>
+        [MaxLength(4000)]
+        public string? SkillsText { get; set; }
+
+        /// <summary>
+        /// The old comma-separated list. Kept so resumes saved before free
+        /// typing still open; <see cref="SkillsText"/> wins when both are set.
+        /// </summary>
         public List<string> Skills { get; set; } = new();
+
+        /// <summary>Sections the student added themselves.</summary>
+        public List<CustomSectionDto> Custom { get; set; } = new();
+
+        /// <summary>
+        /// Section keys, top to bottom: summary, education, experience,
+        /// projects, skills, or custom:{id}.
+        ///
+        /// A key that is missing is a section the student removed. Its content
+        /// stays in the record on purpose, so putting the section back is one
+        /// click rather than retyping it.
+        ///
+        /// Empty means "never arranged", which is every resume saved before
+        /// this existed - the editor falls back to the default order in that
+        /// case rather than showing an empty page.
+        /// </summary>
+        public List<string> Layout { get; set; } = new();
+    }
+
+    /// <summary>
+    /// A section the student made up: Certifications, Leadership, Awards,
+    /// Coursework - anything the built-in sections do not cover. One heading
+    /// and one block of free text, because the whole point of it is that
+    /// nobody knew in advance what shape the content would be.
+    /// </summary>
+    public class CustomSectionDto
+    {
+        /// <summary>Stable within a resume, so Layout can point at it.</summary>
+        [MaxLength(40)] public string Id { get; set; } = string.Empty;
+
+        [MaxLength(120)] public string? Title { get; set; }
+
+        /// <summary>Same plain-text rules as <see cref="ResumeContentDto.SkillsText"/>.</summary>
+        [MaxLength(8000)] public string? Body { get; set; }
     }
 
     public class ContactDto

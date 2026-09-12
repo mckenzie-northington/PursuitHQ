@@ -6,7 +6,6 @@ import {
   GRID_END_HOUR,
   GRID_START_HOUR,
   HOUR_HEIGHT,
-  TYPE,
   chipTime,
   colorOf,
   hourLabel,
@@ -16,6 +15,7 @@ import {
   timeRangeOf,
   todayIso,
   toTimeValue,
+  isTickable,
 } from "@/lib/calendar";
 import AssignmentCheckbox from "./AssignmentCheckbox";
 
@@ -40,16 +40,34 @@ export default function TimeGrid({
   byDate,
   onSlotClick,
   onItemClick,
-  onToggleAssignment,
+  onToggleItem,
   onDayClick,
+  /**
+   * Let the hour grid run its full height and scroll with the page, instead of
+   * sitting in a box with its own scrollbar.
+   *
+   * Used by the week view, where a fixed-height box meant scrolling inside a
+   * scroll - the page moved, then the grid moved, and neither felt like the
+   * thing you meant to move. The day view keeps its own box, because there it
+   * sits beside other content that would otherwise be pushed far off screen.
+   */
+  pageScroll = false,
 }) {
   const today = todayIso();
   const nowMinutes = useNowMinutes();
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div
+      className={`rounded-xl border border-slate-200 bg-white ${
+        pageScroll ? "" : "overflow-hidden"
+      }`}
+    >
       {/* Day headers */}
-      <div className="flex border-b border-slate-200 bg-slate-50">
+      <div
+        className={`flex border-b border-slate-200 bg-slate-50 ${
+          pageScroll ? "sticky top-0 z-20" : ""
+        }`}
+      >
         <div className="w-16 shrink-0 border-r border-slate-200" />
         {days.map((day) => {
           const key = iso(day);
@@ -97,7 +115,7 @@ export default function TimeGrid({
                   key={item.id}
                   item={item}
                   onClick={() => onItemClick(item)}
-                  onToggle={() => onToggleAssignment(item)}
+                  onToggle={() => onToggleItem(item)}
                 />
               ))}
             </div>
@@ -106,7 +124,7 @@ export default function TimeGrid({
       </div>
 
       {/* Hour grid */}
-      <div className="max-h-[34rem] overflow-y-auto">
+      <div className={pageScroll ? "" : "max-h-[34rem] overflow-y-auto"}>
         <div className="flex pt-3">
           {/* Time gutter */}
           <div className="relative w-16 shrink-0 border-r border-slate-200" style={{ height: GRID_HEIGHT }}>
@@ -241,7 +259,7 @@ function DayColumn({ dateStr, items, isToday, nowMinutes, onSlotClick, onItemCli
 /** An all-day item in the strip: assignments get a checkbox, events do not. */
 function AllDayChip({ item, onClick, onToggle }) {
   const color = colorOf(item);
-  const assignment = item.type === TYPE.ASSIGNMENT;
+  const tickable = isTickable(item);
   const done = isDone(item);
 
   return (
@@ -249,7 +267,7 @@ function AllDayChip({ item, onClick, onToggle }) {
       className="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] leading-tight text-white"
       style={{ backgroundColor: color, opacity: done ? 0.55 : 1 }}
     >
-      {assignment && <AssignmentCheckbox checked={done} onChange={onToggle} onLight={false} />}
+      {tickable && <AssignmentCheckbox checked={done} onChange={onToggle} onLight={false} />}
       <button
         type="button"
         onClick={onClick}

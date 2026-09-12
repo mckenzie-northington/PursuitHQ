@@ -18,12 +18,23 @@
  * 2 was study sessions, removed in September 2026. The number is left out
  * rather than reused: old rows and any saved state still mean what they meant.
  */
-export const TYPE = { CLASS: 0, ASSIGNMENT: 1, EVENT: 3 };
+export const TYPE = { CLASS: 0, ASSIGNMENT: 1, EVENT: 3, REMINDER: 4 };
+
+/**
+ * Things with a tick box: they are done or they are not.
+ *
+ * A class or an event simply happens - there is nothing to complete - so only
+ * these two get a checkbox on the calendar.
+ */
+export function isTickable(item) {
+  return item.type === TYPE.ASSIGNMENT || item.type === TYPE.REMINDER;
+}
 
 export const TYPE_LABEL = {
   0: "Class",
   1: "Assignment",
   3: "Event",
+  4: "Reminder",
 };
 
 /** Fallback colors for items with no course color of their own. */
@@ -31,6 +42,7 @@ export const TYPE_COLOR = {
   0: "#6366f1",
   1: "#ef4444",
   3: "#0ea5e9",
+  4: "#8b5cf6",
 };
 
 /** Matches the EventType enum in the API. */

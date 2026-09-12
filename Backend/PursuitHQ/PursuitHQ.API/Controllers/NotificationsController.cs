@@ -57,6 +57,12 @@ namespace PursuitHQ.API.Controllers
                     "InvalidTime", $"\"{dto.DailyDigestTime}\" is not a time like 07:00."));
             }
 
+            if (!TryParseTime(dto.WeeklyDigestTime, out var weeklyTime))
+            {
+                return BadRequest(new ApiErrorDto(
+                    "InvalidTime", $"\"{dto.WeeklyDigestTime}\" is not a time like 18:00."));
+            }
+
             var preference = await GetOrCreateAsync();
 
             preference.EmailEnabled = dto.EmailEnabled;
@@ -71,6 +77,9 @@ namespace PursuitHQ.API.Controllers
             preference.DailyDigestTime = digestTime;
 
             preference.WeeklyDigestEnabled = dto.WeeklyDigestEnabled;
+            preference.CreationConfirmationsEnabled = dto.CreationConfirmationsEnabled;
+            preference.WeeklyDigestDay = (DayOfWeek)dto.WeeklyDigestDay;
+            preference.WeeklyDigestTime = weeklyTime;
 
             await _db.SaveChangesAsync();
 
@@ -137,6 +146,26 @@ namespace PursuitHQ.API.Controllers
             });
         }
 
+        /// <summary>
+        /// Runs the reminder pass immediately instead of waiting for the timer.
+        ///
+        /// Development only, and a 404 anywhere else. This sends to every
+        /// student who is due something, not just the caller, so it is not
+        /// something a signed-in user should be able to trigger on a real
+        /// server - the deployed version of this is a secured endpoint that
+        /// only the scheduler can call.
+        /// </summary>
+        [HttpPost("run")]
+        public async Task<IActionResult> RunNow(
+            [FromServices] IWebHostEnvironment environment,
+            [FromServices] INotificationService notifications,
+            CancellationToken ct)
+        {
+            if (!environment.IsDevelopment()) return NotFound();
+
+            return Ok(await notifications.RunAsync(ct));
+        }
+
         // ---------- helpers ----------
 
         /// <summary>
@@ -182,6 +211,9 @@ namespace PursuitHQ.API.Controllers
                 DailyDigestEnabled = p.DailyDigestEnabled,
                 DailyDigestTime = p.DailyDigestTime.ToString("HH\\:mm", CultureInfo.InvariantCulture),
                 WeeklyDigestEnabled = p.WeeklyDigestEnabled,
+                CreationConfirmationsEnabled = p.CreationConfirmationsEnabled,
+                WeeklyDigestDay = (int)p.WeeklyDigestDay,
+                WeeklyDigestTime = p.WeeklyDigestTime.ToString("HH\\:mm", CultureInfo.InvariantCulture),
                 TimeZone = string.IsNullOrWhiteSpace(timeZone) ? "America/New_York" : timeZone,
                 DeliveryConfigured = _email.IsConfigured
             };

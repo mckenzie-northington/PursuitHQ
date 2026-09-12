@@ -4,6 +4,7 @@ using PursuitHQ.API.Data;
 using PursuitHQ.API.DTOs;
 using PursuitHQ.API.DTOs.Assignments;
 using PursuitHQ.API.Models;
+using PursuitHQ.API.Services;
 
 namespace PursuitHQ.API.Controllers
 {
@@ -11,8 +12,13 @@ namespace PursuitHQ.API.Controllers
     public class AssignmentsController : ApiControllerBase
     {
         private readonly ApplicationDbContext _db;
+        private readonly ICreationNotifier _notifier;
 
-        public AssignmentsController(ApplicationDbContext db) => _db = db;
+        public AssignmentsController(ApplicationDbContext db, ICreationNotifier notifier)
+        {
+            _db = db;
+            _notifier = notifier;
+        }
 
         /// <summary>
         /// Assignments across all of the student's courses, with filters.
@@ -101,6 +107,10 @@ namespace PursuitHQ.API.Controllers
             await _db.SaveChangesAsync();
 
             assignment.Course = course;
+
+            await _notifier.ItemCreatedAsync(
+                CurrentUserId, "assignment", assignment.Title,
+                $"{course.Name} - due {assignment.DueDate:dddd, d MMMM} at {assignment.DueDate:h:mm tt}");
 
             return CreatedAtAction(nameof(GetAssignment), new { id = assignment.Id }, ToDto(assignment));
         }

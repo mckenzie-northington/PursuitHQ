@@ -2,12 +2,12 @@
 
 import {
   DAY_NAMES,
-  TYPE,
   chipTime,
   colorOf,
   isDone,
   iso,
   todayIso,
+  isTickable,
 } from "@/lib/calendar";
 import AssignmentCheckbox from "./AssignmentCheckbox";
 
@@ -29,7 +29,7 @@ export default function MonthGrid({
   onDayNumberClick,
   onEmptyClick,
   onItemClick,
-  onToggleAssignment,
+  onToggleItem,
 }) {
   const today = todayIso();
 
@@ -88,7 +88,7 @@ export default function MonthGrid({
                     key={item.id}
                     item={item}
                     onClick={() => onItemClick(item)}
-                    onToggle={() => onToggleAssignment(item)}
+                    onToggle={() => onToggleItem(item)}
                   />
                 ))}
 
@@ -114,7 +114,7 @@ export default function MonthGrid({
 }
 
 function MonthChip({ item, onClick, onToggle }) {
-  const assignment = item.type === TYPE.ASSIGNMENT;
+  const tickable = isTickable(item);
   const done = isDone(item);
 
   return (
@@ -122,7 +122,7 @@ function MonthChip({ item, onClick, onToggle }) {
       className="flex items-center gap-1 rounded px-1 py-0.5 text-[11px] leading-tight text-white"
       style={{ backgroundColor: colorOf(item), opacity: done ? 0.55 : 1 }}
     >
-      {assignment && <AssignmentCheckbox checked={done} onChange={onToggle} onLight={false} />}
+      {tickable && <AssignmentCheckbox checked={done} onChange={onToggle} onLight={false} />}
       <button
         type="button"
         onClick={(e) => {

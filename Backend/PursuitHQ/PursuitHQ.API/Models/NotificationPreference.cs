@@ -25,6 +25,26 @@ namespace PursuitHQ.API.Models
 
         public bool WeeklyDigestEnabled { get; set; }
 
+        /// <summary>
+        /// Which day the week-ahead summary goes out. Sunday evening by default,
+        /// but Monday morning suits people who would rather not think about the
+        /// week until it starts.
+        /// </summary>
+        public DayOfWeek WeeklyDigestDay { get; set; } = DayOfWeek.Sunday;
+
+        /// <summary>Local time to send it, e.g. 18:00.</summary>
+        public TimeOnly WeeklyDigestTime { get; set; } = new TimeOnly(18, 0);
+
+        /// <summary>
+        /// Email a confirmation whenever the student adds a course, an
+        /// assignment or an event.
+        ///
+        /// Off by default. This is the only kind of email here that is not tied
+        /// to a deadline, and one per record adds up fast - opting in should be
+        /// a choice, not something to discover and switch off.
+        /// </summary>
+        public bool CreationConfirmationsEnabled { get; set; }
+
         /// <summary>IANA time zone id, e.g. "America/New_York". Required so reminders arrive at the right local time.</summary>
         public string TimeZone { get; set; } = "America/New_York";
     }

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { WEEKDAY_CODES, fromIso, longDate } from "@/lib/calendar";
 import ColorPicker from "@/components/ColorPicker";
 import { useSavedColors } from "@/lib/useSavedColors";
+import { ComposerTabs } from "./ReminderDialog";
 
 /**
  * The add/edit event dialog.
@@ -16,7 +17,15 @@ import { useSavedColors } from "@/lib/useSavedColors";
  * remounts it and the form starts from `initial` every time it opens. That is
  * simpler and less bug-prone than syncing props into state with an effect.
  */
-export default function EventDialog({ initial, onSave, onDelete, onClose, busy, error }) {
+export default function EventDialog({
+  initial,
+  onSave,
+  onDelete,
+  onClose,
+  onSwitchKind,
+  busy,
+  error,
+}) {
   const [form, setForm] = useState(initial);
   const [localError, setLocalError] = useState("");
   const palette = useSavedColors();
@@ -102,9 +111,7 @@ export default function EventDialog({ initial, onSave, onDelete, onClose, busy, 
         className="relative w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-xl"
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold text-slate-900">
-            {isEdit ? "Edit event" : "New event"}
-          </h2>
+          <ComposerTabs kind="event" onSwitchKind={onSwitchKind} isEdit={isEdit} />
           <button
             type="button"
             onClick={onClose}

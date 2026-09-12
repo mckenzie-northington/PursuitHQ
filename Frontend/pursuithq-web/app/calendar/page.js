@@ -6,11 +6,13 @@ import {
   assignments as assignmentsApi,
   calendar as calendarApi,
   calendarEvents as eventsApi,
+  reminders as remindersApi,
 } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import MonthGrid from "@/components/calendar/MonthGrid";
 import TimeGrid from "@/components/calendar/TimeGrid";
 import EventDialog from "@/components/calendar/EventDialog";
+import ReminderDialog from "@/components/calendar/ReminderDialog";
 import AssignmentCheckbox from "@/components/calendar/AssignmentCheckbox";
 import {
   TYPE,
@@ -42,6 +44,9 @@ export default function CalendarPage() {
   // The event dialog. `null` means closed; otherwise it holds the form to
   // start from, and the dialog is keyed on it so it remounts fresh each time.
   const [dialog, setDialog] = useState(null);
+
+  /** "event" or "reminder" - which side of the composer is showing. */
+  const [composerKind, setComposerKind] = useState("event");
   const [dialogError, setDialogError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -104,7 +109,26 @@ export default function CalendarPage() {
 
   function startNewEvent(dateStr, timeStr) {
     setDialogError("");
+    setComposerKind("event");
     setDialog(blankEvent(dateStr ?? todayIso(), timeStr));
+  }
+
+  /**
+   * Swaps the composer between an event and a reminder.
+   *
+   * Whatever was typed is dropped rather than carried across: the two share
+   * only a title, and silently discarding a start time, a repeat rule and a
+   * colour while appearing to keep the rest would be worse than starting clean.
+   */
+  function switchComposer(kind) {
+    setDialogError("");
+
+    // Keep the day. You opened this by clicking a slot, and landing back on
+    // today's date after switching tabs would quietly undo that.
+    const day = dialog?.startDate ?? dialog?.date ?? todayIso();
+
+    setComposerKind(kind);
+    setDialog(kind === "reminder" ? blankReminder(day) : blankEvent(day));
   }
 
   async function openItem(item) {
@@ -142,6 +166,40 @@ export default function CalendarPage() {
       await refresh();
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function saveReminder(payload) {
+    setBusy(true);
+    setDialogError("");
+
+    try {
+      if (dialog.id != null) await remindersApi.update(dialog.id, payload);
+      else await remindersApi.create(payload);
+
+      setDialog(null);
+      await refresh();
+    } catch (err) {
+      setDialogError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteReminder() {
+    if (dialog?.id == null) return;
+    if (!confirm(`Delete "${dialog.title}"?`)) return;
+
+    setBusy(true);
+
+    try {
+      await remindersApi.remove(dialog.id);
+      setDialog(null);
+      await refresh();
+    } catch (err) {
+      setDialogError(err.message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -184,9 +242,10 @@ export default function CalendarPage() {
    * feels instant. If the save fails we say so and reload, which puts the box
    * back where the database says it belongs.
    */
-  async function toggleAssignment(item) {
-    const nextStatus = isDone(item) ? 0 : 2;
-    const nextLabel = nextStatus === 2 ? "Completed" : "NotStarted";
+  async function toggleItem(item) {
+    const done = isDone(item);
+    const nextStatus = done ? 0 : 2;
+    const nextLabel = done ? "NotStarted" : "Completed";
 
     setItems((current) =>
       current.map((i) =>
@@ -200,7 +259,11 @@ export default function CalendarPage() {
     );
 
     try {
-      await assignmentsApi.setStatus(item.sourceId, nextStatus);
+      if (item.type === TYPE.REMINDER) {
+        await remindersApi.setStatus(item.sourceId, !done);
+      } else {
+        await assignmentsApi.setStatus(item.sourceId, nextStatus);
+      }
     } catch (err) {
       setError(`Could not update "${item.title}" - ${err.message}`);
       await refresh();
@@ -223,12 +286,6 @@ export default function CalendarPage() {
             Click any empty space to add an event.
           </p>
         </div>
-        <button
-          onClick={() => startNewEvent(view === "day" ? iso(anchor) : todayIso())}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700"
-        >
-          Add event
-        </button>
       </div>
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
@@ -248,18 +305,31 @@ export default function CalendarPage() {
           </h2>
         </div>
 
-        <div className="flex rounded-md border border-slate-300 p-0.5">
-          {VIEWS.map((v) => (
+        {/*
+          The add button and the view switcher share a column so the button sits
+          directly above month / week / day, rather than off beside the heading.
+        */}
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <button
+            onClick={() => startNewEvent(view === "day" ? iso(anchor) : todayIso())}
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700"
+          >
+            Add event / reminder
+          </button>
+
+          <div className="flex rounded-md border border-slate-300 p-0.5">
+            {VIEWS.map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
               className={`rounded px-3 py-1 text-sm font-medium capitalize transition ${
                 view === v ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
               }`}
-            >
-              {v}
-            </button>
-          ))}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -281,7 +351,7 @@ export default function CalendarPage() {
             onDayNumberClick={openDay}
             onEmptyClick={(dateStr) => startNewEvent(dateStr)}
             onItemClick={openItem}
-            onToggleAssignment={toggleAssignment}
+            onToggleItem={toggleItem}
           />
         ) : (
           <TimeGrid
@@ -289,8 +359,9 @@ export default function CalendarPage() {
             byDate={byDate}
             onSlotClick={startNewEvent}
             onItemClick={openItem}
-            onToggleAssignment={toggleAssignment}
+            onToggleItem={toggleItem}
             onDayClick={openDay}
+            pageScroll={view === "week"}
           />
         )}
       </div>
@@ -300,11 +371,24 @@ export default function CalendarPage() {
           dateStr={iso(anchor)}
           items={byDate[iso(anchor)] ?? []}
           onItemClick={openItem}
-          onToggleAssignment={toggleAssignment}
+          onToggleItem={toggleItem}
         />
       )}
 
-      {dialog && (
+      {dialog && composerKind === "reminder" && (
+        <ReminderDialog
+          key={dialog.key}
+          initial={dialog}
+          busy={busy}
+          error={dialogError}
+          onSave={saveReminder}
+          onDelete={deleteReminder}
+          onClose={() => setDialog(null)}
+          onSwitchKind={switchComposer}
+        />
+      )}
+
+      {dialog && composerKind === "event" && (
         <EventDialog
           key={dialog.key}
           initial={dialog}
@@ -313,6 +397,7 @@ export default function CalendarPage() {
           onSave={saveEvent}
           onDelete={deleteEvent}
           onClose={() => setDialog(null)}
+          onSwitchKind={switchComposer}
         />
       )}
 
@@ -320,7 +405,7 @@ export default function CalendarPage() {
         <ItemDetail
           detail={detail}
           onClose={() => setDetail(null)}
-          onToggle={toggleAssignment}
+          onToggle={toggleItem}
           onEdit={editFromDetail}
           onDelete={deleteFromDetail}
         />
@@ -333,7 +418,7 @@ const navBtn =
   "rounded-md border border-slate-300 px-2.5 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50";
 
 /** The written-out version of a day, under the hour grid. */
-function DaySchedule({ dateStr, items, onItemClick, onToggleAssignment }) {
+function DaySchedule({ dateStr, items, onItemClick, onToggleItem }) {
   return (
     <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
       <h3 className="font-medium text-slate-900">{longDate(dateStr)}</h3>
@@ -350,7 +435,7 @@ function DaySchedule({ dateStr, items, onItemClick, onToggleAssignment }) {
               <li key={item.id} className="flex items-start gap-3 py-2.5">
                 {assignment ? (
                   <span className="mt-0.5">
-                    <AssignmentCheckbox checked={done} onChange={() => onToggleAssignment(item)} />
+                    <AssignmentCheckbox checked={done} onChange={() => onToggleItem(item)} />
                   </span>
                 ) : (
                   <span
@@ -571,6 +656,17 @@ function headingFor(anchor, view, rangeStart, rangeEnd) {
 }
 
 /** A fresh event form, starting at the slot that was clicked. */
+function blankReminder(dateStr) {
+  return {
+    key: `new-reminder-${dateStr}-${Date.now()}`,
+    id: null,
+    title: "",
+    notes: "",
+    date: dateStr,
+    isCompleted: false,
+  };
+}
+
 function blankEvent(dateStr, timeStr) {
   const start = timeStr || "09:00";
   const end = toTimeValue((minutesOf(start) ?? 540) + 60);

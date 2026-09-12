@@ -392,6 +392,19 @@ export const calendar = {
   range: (from, to) => api.get(`/api/calendar?from=${from}&to=${to}`),
 };
 
+export const reminders = {
+  /** Optional from/to as YYYY-MM-DD. */
+  list: (from, to) =>
+    api.get(from && to ? `/api/reminders?from=${from}&to=${to}` : "/api/reminders"),
+  get: (id) => api.get(`/api/reminders/${id}`),
+  create: (data) => api.post("/api/reminders", data),
+  update: (id, data) => api.put(`/api/reminders/${id}`, data),
+  /** Just the tick, for the checkbox on the calendar. */
+  setStatus: (id, isCompleted) =>
+    api.patch(`/api/reminders/${id}/status`, { isCompleted }),
+  remove: (id) => api.del(`/api/reminders/${id}`),
+};
+
 export const calendarEvents = {
   /** The full event record. Calendar items carry only what the grid draws. */
   get: (id) => api.get(`/api/calendar-events/${id}`),

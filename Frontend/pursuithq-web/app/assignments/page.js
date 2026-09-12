@@ -8,6 +8,64 @@ import AssignmentCheckbox from "@/components/calendar/AssignmentCheckbox";
 // Matches the AssignmentStatus enum in the API.
 const STATUS = { 0: "Not started", 1: "In progress", 2: "Completed" };
 
+const BLANK = { courseId: "", title: "", description: "", dueDate: "", status: 0, grade: "" };
+
+/**
+ * Turns what the API sends into what a datetime-local input wants.
+ *
+ * The input only accepts "YYYY-MM-DDTHH:mm" and silently shows blank for
+ * anything else - including the seconds the API includes. Cutting the string
+ * rather than going through Date() on purpose: these are wall-clock times, and
+ * parsing then re-formatting invites a time-zone shift into a value that was
+ * never an instant to begin with.
+ */
+function toInputValue(dueDate) {
+  if (!dueDate) return "";
+  const [date, time = "00:00"] = String(dueDate).split("T");
+  return `${date}T${time.slice(0, 5)}`;
+}
+
+/**
+ * A clock that ticks, so anything comparing against "now" stays true.
+ *
+ * The API sends an `isOverdue` flag, but it is a snapshot of the instant the
+ * list was fetched: open this page at 9am and something due at noon would still
+ * read as on time at 3pm, because nothing asked again. Working it out here from
+ * the due date means the deadline flips by itself, to the minute, without a
+ * reload.
+ *
+ * Every minute rather than every second - a deadline is never so precise that
+ * the second matters, and a re-render a second is a waste of a battery.
+ */
+function useNow(intervalMs = 60_000) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+
+  return now;
+}
+
+/**
+ * How late, in words.
+ *
+ * "Overdue" alone does not say whether you missed it by ten minutes or ten
+ * days, and those call for very different reactions.
+ */
+function describeLate(dueDate, now) {
+  const minutes = Math.floor((now - dueDate) / 60_000);
+
+  if (minutes < 60) return minutes <= 1 ? "just now" : `${minutes} min ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
+}
+
 export default function AssignmentsPage() {
   const { user, loading } = useAuth();
   const [items, setItems] = useState([]);
@@ -17,8 +75,13 @@ export default function AssignmentsPage() {
   const [filter, setFilter] = useState({ courseId: "", status: "" });
 
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ courseId: "", title: "", description: "", dueDate: "", status: 0 });
+  const [form, setForm] = useState(BLANK);
   const [busy, setBusy] = useState(false);
+
+  /** The assignment being edited, or null when adding a new one. */
+  const [editingId, setEditingId] = useState(null);
+
+  const now = useNow();
 
   async function refresh() {
     try {
@@ -38,24 +101,61 @@ export default function AssignmentsPage() {
     refresh();
   }, [loading, user, filter.courseId, filter.status]);
 
+  function startAdding() {
+    setEditingId(null);
+    setForm(BLANK);
+    setShowForm(true);
+  }
+
+  function startEditing(a) {
+    setEditingId(a.id);
+    setForm({
+      courseId: String(a.courseId ?? ""),
+      title: a.title ?? "",
+      description: a.description ?? "",
+      dueDate: toInputValue(a.dueDate),
+      status: a.status ?? 0,
+      grade: a.grade ?? "",
+    });
+    setShowForm(true);
+    setError("");
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(BLANK);
+  }
+
   async function saveAssignment(e) {
     e.preventDefault();
     setBusy(true);
     setError("");
 
+    // Sent exactly as typed. Converting to UTC here would store a different
+    // wall-clock time than the student picked, and an 11:59 PM deadline would
+    // land on the next day in the calendar.
+    const payload = {
+      title: form.title,
+      description: form.description || null,
+      dueDate: form.dueDate,
+      status: Number(form.status),
+    };
+
     try {
-      await assignmentsApi.create({
-        courseId: Number(form.courseId),
-        title: form.title,
-        description: form.description || null,
-        // Sent exactly as typed. Converting to UTC here would store a
-        // different wall-clock time than the student picked, and an 11:59 PM
-        // deadline would land on the next day in the calendar.
-        dueDate: form.dueDate,
-        status: Number(form.status),
-      });
-      setShowForm(false);
-      setForm({ courseId: "", title: "", description: "", dueDate: "", status: 0 });
+      if (editingId) {
+        // No courseId: the API's update deliberately does not move an
+        // assignment between courses, so sending one would be ignored and
+        // look like a bug.
+        await assignmentsApi.update(editingId, {
+          ...payload,
+          grade: form.grade.trim() || null,
+        });
+      } else {
+        await assignmentsApi.create({ ...payload, courseId: Number(form.courseId) });
+      }
+
+      closeForm();
       await refresh();
     } catch (err) {
       setError(err.message);
@@ -76,7 +176,7 @@ export default function AssignmentsPage() {
     setItems((current) =>
       current.map((row) =>
         row.id === a.id
-          ? { ...row, status: next, isOverdue: next === 2 ? false : row.isOverdue }
+          ? { ...row, status: next }
           : row
       )
     );
@@ -122,7 +222,7 @@ export default function AssignmentsPage() {
           <p className="mt-1 text-sm text-slate-600">Everything due across your courses.</p>
         </div>
         <button
-          onClick={() => setShowForm(!showForm)}
+          onClick={() => (showForm ? closeForm() : startAdding())}
           disabled={courses.length === 0}
           className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           title={courses.length === 0 ? "Add a course first" : ""}
@@ -143,15 +243,26 @@ export default function AssignmentsPage() {
 
       {showForm && courses.length > 0 && (
         <form onSubmit={saveAssignment} className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
-          <h2 className="font-medium">New assignment</h2>
+          <h2 className="font-medium">{editingId ? "Edit assignment" : "New assignment"}</h2>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-slate-700">Course</label>
-              <select required value={form.courseId} onChange={(e) => setForm({ ...form, courseId: e.target.value })} className={input}>
+              <select
+                required
+                disabled={editingId !== null}
+                value={form.courseId}
+                onChange={(e) => setForm({ ...form, courseId: e.target.value })}
+                className={`${input} ${editingId !== null ? "opacity-60" : ""}`}
+              >
                 <option value="">Select a course</option>
                 {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              {editingId !== null && (
+                <p className="mt-1 text-xs text-slate-500">
+                  An assignment cannot be moved to another course. Delete it and add it again.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700">Title</label>
@@ -167,6 +278,17 @@ export default function AssignmentsPage() {
                 {Object.entries(STATUS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
               </select>
             </div>
+            {editingId !== null && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700">Grade</label>
+                <input
+                  value={form.grade}
+                  onChange={(e) => setForm({ ...form, grade: e.target.value })}
+                  className={input}
+                  placeholder="94, A-, optional"
+                />
+              </div>
+            )}
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-slate-700">Description</label>
               <textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={input} placeholder="Optional" />
@@ -175,9 +297,9 @@ export default function AssignmentsPage() {
 
           <div className="mt-5 flex gap-2">
             <button type="submit" disabled={busy} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
-              {busy ? "Saving..." : "Create assignment"}
+              {busy ? "Saving..." : editingId ? "Save changes" : "Create assignment"}
             </button>
-            <button type="button" onClick={() => setShowForm(false)} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+            <button type="button" onClick={closeForm} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
               Cancel
             </button>
           </div>
@@ -202,7 +324,13 @@ export default function AssignmentsPage() {
           </div>
         ) : (
           <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
-            {items.map((a) => (
+            {items.map((a) => {
+              // Worked out here rather than trusting a.isOverdue, which was
+              // true (or not) whenever the list happened to load.
+              const dueDate = new Date(a.dueDate);
+              const overdue = a.status !== 2 && dueDate < now;
+
+              return (
               <li key={a.id} className="flex items-center justify-between gap-4 px-4 py-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <AssignmentCheckbox checked={a.status === 2} onChange={() => toggleDone(a)} />
@@ -215,9 +343,11 @@ export default function AssignmentsPage() {
                       {a.title}
                     </p>
                     <p className="text-sm text-slate-500">
-                      {a.courseName} · due {new Date(a.dueDate).toLocaleString()}
-                      {a.isOverdue && a.status !== 2 && (
-                        <span className="ml-2 font-medium text-red-600">Overdue</span>
+                      {a.courseName} · due {dueDate.toLocaleString()}
+                      {overdue && (
+                        <span className="ml-2 font-medium text-red-600">
+                          Overdue · {describeLate(dueDate, now)}
+                        </span>
                       )}
                     </p>
                   </div>
@@ -237,12 +367,19 @@ export default function AssignmentsPage() {
                   >
                     {STATUS[a.status]}
                   </button>
+                  <button
+                    onClick={() => startEditing(a)}
+                    className="text-sm text-slate-500 hover:text-indigo-600"
+                  >
+                    Edit
+                  </button>
                   <button onClick={() => remove(a)} className="text-sm text-slate-400 hover:text-red-600">
                     Delete
                   </button>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>

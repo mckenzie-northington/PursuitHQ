@@ -11,7 +11,10 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 
-const COUNTS = [10, 15, 20, 30];
+// The API clamps to this range, so the input says the same thing rather than
+// letting someone type 500 and quietly get 40.
+const MIN_CARDS = 5;
+const MAX_CARDS = 40;
 
 export default function CourseFlashcardsPage() {
   const { id } = useParams();
@@ -185,17 +188,18 @@ export default function CourseFlashcardsPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700">Cards</label>
-                <select
+                <input
+                  type="number"
+                  min={MIN_CARDS}
+                  max={MAX_CARDS}
                   value={count}
                   onChange={(e) => setCount(e.target.value)}
                   className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                >
-                  {COUNTS.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  {MIN_CARDS}&ndash;{MAX_CARDS}. How many the material supports matters
+                  more than the number you ask for.
+                </p>
               </div>
             </div>
 

@@ -60,6 +60,7 @@ namespace PursuitHQ.API.Services
                 ("classes",        () => GetClassMeetingsAsync(userId, from, to)),
                 ("assignments",    () => GetAssignmentsAsync(userId, from, to)),
                 ("events",         () => GetEventsAsync(userId, from, to)),
+                ("reminders",      () => GetRemindersAsync(userId, from, to)),
             })
             {
                 try
@@ -145,6 +146,39 @@ namespace PursuitHQ.API.Services
             }
 
             return items;
+        }
+
+        /// <summary>
+        /// Reminders for the range.
+        ///
+        /// Always all-day: a reminder carries a date and no time, so it belongs
+        /// in the strip above the hour grid next to assignment deadlines, not in
+        /// a slot. Completed ones are kept rather than filtered out - ticking
+        /// something off and watching it vanish makes it hard to be sure you
+        /// ticked the right thing.
+        /// </summary>
+        private async Task<List<CalendarItemDto>> GetRemindersAsync(
+            string userId, DateOnly from, DateOnly to)
+        {
+            var reminders = await _db.Reminders
+                .Where(r => r.UserId == userId && r.Date >= from && r.Date <= to)
+                .Select(r => new { r.Id, r.Title, r.Notes, r.Date, r.IsCompleted })
+                .ToListAsync();
+
+            var today = DateOnly.FromDateTime(DateTime.Now);
+
+            return reminders.Select(r => new CalendarItemDto
+            {
+                Id = $"reminder-{r.Id}",
+                Type = CalendarItemType.Reminder,
+                Title = r.Title,
+                Subtitle = r.Notes,
+                Date = r.Date,
+                IsAllDay = true,
+                SourceId = r.Id,
+                Status = r.IsCompleted ? "Completed" : "NotStarted",
+                IsOverdue = !r.IsCompleted && r.Date < today
+            }).ToList();
         }
 
         private async Task<List<CalendarItemDto>> GetAssignmentsAsync(

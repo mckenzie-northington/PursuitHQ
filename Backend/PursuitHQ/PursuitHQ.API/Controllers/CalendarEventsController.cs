@@ -4,6 +4,7 @@ using PursuitHQ.API.Data;
 using PursuitHQ.API.DTOs;
 using PursuitHQ.API.DTOs.Calendar;
 using PursuitHQ.API.Models;
+using PursuitHQ.API.Services;
 
 namespace PursuitHQ.API.Controllers
 {
@@ -15,8 +16,13 @@ namespace PursuitHQ.API.Controllers
     public class CalendarEventsController : ApiControllerBase
     {
         private readonly ApplicationDbContext _db;
+        private readonly ICreationNotifier _notifier;
 
-        public CalendarEventsController(ApplicationDbContext db) => _db = db;
+        public CalendarEventsController(ApplicationDbContext db, ICreationNotifier notifier)
+        {
+            _db = db;
+            _notifier = notifier;
+        }
 
         [HttpGet]
         public async Task<ActionResult<List<CalendarEventDto>>> GetEvents(
@@ -70,6 +76,12 @@ namespace PursuitHQ.API.Controllers
 
             _db.CalendarEvents.Add(calendarEvent);
             await _db.SaveChangesAsync();
+
+            await _notifier.ItemCreatedAsync(
+                CurrentUserId, "event", calendarEvent.Title,
+                calendarEvent.IsAllDay
+                    ? $"{calendarEvent.StartDateTime:dddd, d MMMM} - all day"
+                    : $"{calendarEvent.StartDateTime:dddd, d MMMM} at {calendarEvent.StartDateTime:h:mm tt}");
 
             return CreatedAtAction(nameof(GetEvent), new { id = calendarEvent.Id }, ToDto(calendarEvent));
         }

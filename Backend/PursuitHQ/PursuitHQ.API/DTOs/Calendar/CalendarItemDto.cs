@@ -6,7 +6,8 @@
         Class = 0,
         Assignment = 1,
         StudySession = 2,
-        Event = 3
+        Event = 3,
+        Reminder = 4
     }
 
     /// <summary>

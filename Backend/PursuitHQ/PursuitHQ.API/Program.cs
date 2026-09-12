@@ -146,6 +146,22 @@ else
     builder.Services.AddSingleton<IEmailService, ConsoleEmailService>();
 }
 
+// Confirmation emails are queued from inside a request and sent afterwards,
+// so adding a course never waits on the email provider.
+builder.Services.AddSingleton<EmailQueue>();
+builder.Services.AddSingleton<IEmailQueue>(sp => sp.GetRequiredService<EmailQueue>());
+builder.Services.AddHostedService<EmailQueueWorker>();
+builder.Services.AddScoped<ICreationNotifier, CreationNotifier>();
+
+// Who is owed a reminder, and the record that stops it being sent twice.
+// Scoped, because it holds a DbContext.
+builder.Services.AddScoped<INotificationService, NotificationService>();
+
+// Runs the above on a timer inside the API. At deployment this is replaced by
+// an external cron calling a secured endpoint - the reminder logic does not
+// change, because none of it lives in the timer.
+builder.Services.AddHostedService<ReminderBackgroundService>();
+
 // Singleton so the daily counts survive between requests. In-memory, so they
 // do not survive a restart and would not be shared across instances - fine for
 // a soft guard against runaway loops, not a billing control.

@@ -4,6 +4,7 @@ using PursuitHQ.API.Data;
 using PursuitHQ.API.DTOs;
 using PursuitHQ.API.DTOs.Courses;
 using PursuitHQ.API.Models;
+using PursuitHQ.API.Services;
 
 namespace PursuitHQ.API.Controllers
 {
@@ -11,8 +12,13 @@ namespace PursuitHQ.API.Controllers
     public class CoursesController : ApiControllerBase
     {
         private readonly ApplicationDbContext _db;
+        private readonly ICreationNotifier _notifier;
 
-        public CoursesController(ApplicationDbContext db) => _db = db;
+        public CoursesController(ApplicationDbContext db, ICreationNotifier notifier)
+        {
+            _db = db;
+            _notifier = notifier;
+        }
 
         /// <summary>All of the student's courses, optionally filtered by semester.</summary>
         [HttpGet]
@@ -92,6 +98,11 @@ namespace PursuitHQ.API.Controllers
 
             _db.Courses.Add(course);
             await _db.SaveChangesAsync();
+
+            // After the save, and never allowed to fail it.
+            await _notifier.ItemCreatedAsync(
+                CurrentUserId, "course", course.Name,
+                string.IsNullOrWhiteSpace(course.Semester) ? null : course.Semester);
 
             return CreatedAtAction(nameof(GetCourse), new { id = course.Id }, ToDto(course));
         }

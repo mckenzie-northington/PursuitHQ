@@ -547,15 +547,24 @@ export default function MaterialsPage() {
                   {movingFile?.id === f.id ? (
                     <select
                       autoFocus
-                      defaultValue=""
-                      onChange={(e) =>
-                        moveFile(f, e.target.value === "" ? null : Number(e.target.value))
-                      }
+                      value=""
+                      onChange={(e) => {
+                        const chosen = e.target.value;
+                        if (!chosen) return;
+                        moveFile(f, chosen === "root" ? null : Number(chosen));
+                      }}
                       onBlur={() => setMovingFile(null)}
                       className="rounded-md border border-slate-300 px-2 py-1 text-sm"
                     >
+                      {/*
+                        "root" rather than "" for the top level. Both the
+                        placeholder and this option used to be value="", so the
+                        select was already sitting on that value and choosing it
+                        fired no change event at all - moving a file back to the
+                        top level silently did nothing.
+                      */}
                       <option value="" disabled>Move to...</option>
-                      <option value="">All materials (root)</option>
+                      {f.folderId != null && <option value="root">All materials (root)</option>}
                       {allFolders
                         .filter((folder) => folder.id !== f.folderId)
                         .map((folder) => (

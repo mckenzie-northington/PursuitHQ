@@ -27,6 +27,14 @@ namespace PursuitHQ.API.DTOs.Notifications
 
         public bool WeeklyDigestEnabled { get; set; }
 
+        /// <summary>0 is Sunday, matching both DayOfWeek and JavaScript's getDay().</summary>
+        public int WeeklyDigestDay { get; set; }
+
+        /// <summary>"18:00" - local to the student's own time zone.</summary>
+        public string WeeklyDigestTime { get; set; } = "18:00";
+
+        public bool CreationConfirmationsEnabled { get; set; }
+
         /// <summary>Read-only here, so the settings page can say where reminders will be timed from.</summary>
         public string TimeZone { get; set; } = string.Empty;
 
@@ -59,5 +67,14 @@ namespace PursuitHQ.API.DTOs.Notifications
         public string DailyDigestTime { get; set; } = "07:00";
 
         public bool WeeklyDigestEnabled { get; set; }
+
+        [Range(0, 6, ErrorMessage = "Pick a day of the week.")]
+        public int WeeklyDigestDay { get; set; } = 0;
+
+        /// <summary>"18:00" or "18:00:00".</summary>
+        [Required]
+        public string WeeklyDigestTime { get; set; } = "18:00";
+
+        public bool CreationConfirmationsEnabled { get; set; }
     }
 }

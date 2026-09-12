@@ -46,6 +46,8 @@ namespace PursuitHQ.API.Data
         public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
         public DbSet<Notification> Notifications => Set<Notification>();
 
+        public DbSet<Reminder> Reminders => Set<Reminder>();
+
         /// <summary>
         /// Every DateTime column is PostgreSQL "timestamp with time zone", and
         /// Npgsql refuses to write a DateTime whose Kind is Unspecified to one.
@@ -196,6 +198,7 @@ namespace PursuitHQ.API.Data
             builder.Entity<Course>().HasIndex(c => new { c.UserId, c.Semester });
             builder.Entity<Assignment>().HasIndex(a => a.DueDate);
             builder.Entity<CalendarEvent>().HasIndex(e => new { e.UserId, e.StartDateTime });
+            builder.Entity<Reminder>().HasIndex(r => new { r.UserId, r.Date });
             builder.Entity<StudySession>().HasIndex(s => new { s.UserId, s.ScheduledDate });
             builder.Entity<JobApplication>().HasIndex(j => new { j.UserId, j.Status });
             builder.Entity<StudyMaterial>().HasIndex(m => new { m.CourseId, m.FolderId });

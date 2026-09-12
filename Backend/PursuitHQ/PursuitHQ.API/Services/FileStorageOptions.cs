@@ -41,10 +41,35 @@ namespace PursuitHQ.API.Services
         {
             var ext = Path.GetExtension(fileName).ToLowerInvariant();
 
-            // Both the extension and the declared content type must be on the
-            // list. Checking only one is easy to get around.
-            return AllowedExtensions.Contains(ext)
-                && AllowedContentTypes.Contains(contentType, StringComparer.OrdinalIgnoreCase);
+            // The extension is the real gate, and it is an allow-list.
+            if (!AllowedExtensions.Contains(ext)) return false;
+
+            // A missing or generic content type is accepted when the extension
+            // is already on the list.
+            //
+            // This used to require both to match, which refused real coursework:
+            // Windows reports plenty of ordinary files as
+            // application/octet-stream - a .pptx saved out of Teams, a .docx
+            // pulled from a download - and the upload came back as "that file
+            // type is not allowed" for a perfectly valid PowerPoint.
+            //
+            // Very little is given up. The browser only repeats what the
+            // operating system told it, so this header is trivially spoofable
+            // and was never really a boundary. What actually protects the app is
+            // unchanged: the extension allow-list above, GUID filenames, storage
+            // outside wwwroot, and downloads served as attachments through an
+            // authorized endpoint.
+            if (string.IsNullOrWhiteSpace(contentType)) return true;
+
+            if (contentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // A type that is present but says something else entirely - a .pdf
+            // announcing itself as text/html - is still refused. That is a
+            // contradiction worth noticing rather than waving through.
+            return AllowedContentTypes.Contains(contentType, StringComparer.OrdinalIgnoreCase);
         }
     }
 }

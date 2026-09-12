@@ -36,6 +36,18 @@ const HOURS_BEFORE = [
   { value: 168, label: "A week before" },
 ];
 
+// 0 is Sunday, matching both JavaScript's getDay() and .NET's DayOfWeek, so the
+// number travels to the API and back without anyone having to convert it.
+const WEEKDAYS = [
+  { value: 0, label: "Sunday" },
+  { value: 1, label: "Monday" },
+  { value: 2, label: "Tuesday" },
+  { value: 3, label: "Wednesday" },
+  { value: 4, label: "Thursday" },
+  { value: 5, label: "Friday" },
+  { value: 6, label: "Saturday" },
+];
+
 const MINUTES_BEFORE = [
   { value: 5, label: "5 minutes before" },
   { value: 10, label: "10 minutes before" },
@@ -113,6 +125,9 @@ export default function SettingsPage() {
           dailyDigestEnabled: notify.dailyDigestEnabled,
           dailyDigestTime: notify.dailyDigestTime,
           weeklyDigestEnabled: notify.weeklyDigestEnabled,
+          weeklyDigestDay: Number(notify.weeklyDigestDay),
+          weeklyDigestTime: notify.weeklyDigestTime,
+          creationConfirmationsEnabled: notify.creationConfirmationsEnabled,
         })
       );
 
@@ -454,12 +469,55 @@ export default function SettingsPage() {
                 )}
               </div>
 
-              <Toggle
-                label="Weekly summary"
-                hint="Sunday evening, a look at the week ahead."
-                checked={notify.weeklyDigestEnabled}
-                onChange={(v) => setNotify({ ...notify, weeklyDigestEnabled: v })}
-              />
+              <div>
+                <Toggle
+                  label="Weekly summary"
+                  hint="A look at the seven days ahead."
+                  checked={notify.weeklyDigestEnabled}
+                  onChange={(v) => setNotify({ ...notify, weeklyDigestEnabled: v })}
+                />
+                {notify.weeklyDigestEnabled && (
+                  <div className="grid gap-2 sm:max-w-md sm:grid-cols-2">
+                    <select
+                      value={notify.weeklyDigestDay}
+                      onChange={(e) => setNotify({ ...notify, weeklyDigestDay: e.target.value })}
+                      className={field}
+                    >
+                      {WEEKDAYS.map((day) => (
+                        <option key={day.value} value={day.value}>
+                          {day.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="time"
+                      value={notify.weeklyDigestTime}
+                      onChange={(e) => setNotify({ ...notify, weeklyDigestTime: e.target.value })}
+                      className={field}
+                    />
+                  </div>
+                )}
+              </div>
+              {/*
+                Separated by a rule because it is not a reminder. Everything
+                above is tied to a deadline; this fires the moment you add
+                something, which is a different kind of email and worth not
+                burying among them.
+              */}
+              <div className="border-t border-slate-200 pt-4">
+                <Toggle
+                  label="Confirm when I add something"
+                  hint="An email each time you add a course, assignment or event."
+                  checked={notify.creationConfirmationsEnabled}
+                  onChange={(v) => setNotify({ ...notify, creationConfirmationsEnabled: v })}
+                />
+                {notify.creationConfirmationsEnabled && (
+                  <p className="mt-1 text-xs text-amber-700">
+                    This is one email per item. Adding a semester of assignments in
+                    one sitting will send a lot of them.
+                  </p>
+                )}
+              </div>
             </div>
 
             <p className="mt-4 text-xs text-slate-500">

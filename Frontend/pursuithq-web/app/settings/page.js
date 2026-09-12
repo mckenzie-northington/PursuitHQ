@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { auth as authApi, clearSession } from "@/lib/api";
+import { auth as authApi, notifications as notificationsApi, clearSession } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 
@@ -25,6 +25,26 @@ const TIME_ZONES = [
   "UTC",
 ];
 
+const HOURS_BEFORE = [
+  { value: 1, label: "1 hour before" },
+  { value: 3, label: "3 hours before" },
+  { value: 6, label: "6 hours before" },
+  { value: 12, label: "12 hours before" },
+  { value: 24, label: "A day before" },
+  { value: 48, label: "Two days before" },
+  { value: 72, label: "Three days before" },
+  { value: 168, label: "A week before" },
+];
+
+const MINUTES_BEFORE = [
+  { value: 5, label: "5 minutes before" },
+  { value: 10, label: "10 minutes before" },
+  { value: 15, label: "15 minutes before" },
+  { value: 30, label: "30 minutes before" },
+  { value: 60, label: "An hour before" },
+  { value: 120, label: "Two hours before" },
+];
+
 export default function SettingsPage() {
   const { user, loading, updateUser, signOut } = useAuth();
   const { theme, setTheme } = useTheme();
@@ -32,6 +52,12 @@ export default function SettingsPage() {
 
   const [profile, setProfile] = useState(null);
   const [ready, setReady] = useState(false);
+
+  const [notify, setNotify] = useState(null);
+  const [notifyMessage, setNotifyMessage] = useState("");
+  const [notifyError, setNotifyError] = useState("");
+  const [savingNotify, setSavingNotify] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
@@ -61,7 +87,57 @@ export default function SettingsPage() {
       )
       .catch((err) => setProfileError(err.message))
       .finally(() => setReady(true));
+
+    // Separate from the profile call on purpose: if notifications fail to load,
+    // the rest of settings still works rather than the whole page refusing.
+    notificationsApi
+      .preferences()
+      .then(setNotify)
+      .catch((err) => setNotifyError(err.message));
   }, [loading, user]);
+
+  async function saveNotifications(e) {
+    e.preventDefault();
+    setSavingNotify(true);
+    setNotifyError("");
+    setNotifyMessage("");
+
+    try {
+      setNotify(
+        await notificationsApi.savePreferences({
+          emailEnabled: notify.emailEnabled,
+          assignmentRemindersEnabled: notify.assignmentRemindersEnabled,
+          assignmentReminderHoursBefore: Number(notify.assignmentReminderHoursBefore),
+          eventRemindersEnabled: notify.eventRemindersEnabled,
+          eventReminderMinutesBefore: Number(notify.eventReminderMinutesBefore),
+          dailyDigestEnabled: notify.dailyDigestEnabled,
+          dailyDigestTime: notify.dailyDigestTime,
+          weeklyDigestEnabled: notify.weeklyDigestEnabled,
+        })
+      );
+
+      setNotifyMessage("Saved.");
+    } catch (err) {
+      setNotifyError(err.message);
+    } finally {
+      setSavingNotify(false);
+    }
+  }
+
+  async function sendTest() {
+    setTesting(true);
+    setNotifyError("");
+    setNotifyMessage("");
+
+    try {
+      const result = await notificationsApi.sendTest();
+      setNotifyMessage(result.message);
+    } catch (err) {
+      setNotifyError(err.message);
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function saveProfile(e) {
     e.preventDefault();
@@ -272,6 +348,159 @@ export default function SettingsPage() {
         </form>
       </section>
 
+      {/* Notifications */}
+      <section className={`mt-6 ${card}`}>
+        <h2 className="font-medium text-slate-900">Email notifications</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Choose what PursuitHQ emails you about, or turn it off entirely.
+        </p>
+
+        {notifyError && (
+          <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {notifyError}
+          </p>
+        )}
+
+        {!notify ? (
+          <p className="mt-4 text-sm text-slate-500">Loading...</p>
+        ) : (
+          <form onSubmit={saveNotifications} className="mt-4">
+            {/*
+              Said before anything is switched on, not after. Turning on
+              reminders and then waiting a week to discover nothing sends is a
+              worse experience than being told up front.
+            */}
+            {!notify.deliveryConfigured && (
+              <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Sending is not set up on this server yet, so nothing will actually
+                arrive. Your choices are saved and will be used as soon as it is.
+              </p>
+            )}
+
+            <Toggle
+              label="Email me reminders"
+              hint="The master switch. With this off, nothing is ever sent."
+              checked={notify.emailEnabled}
+              onChange={(v) => setNotify({ ...notify, emailEnabled: v })}
+            />
+
+            <div
+              className={`mt-4 space-y-4 border-t border-slate-200 pt-4 transition ${
+                notify.emailEnabled ? "" : "pointer-events-none opacity-40"
+              }`}
+            >
+              <div>
+                <Toggle
+                  label="Assignment due dates"
+                  hint="One reminder per assignment, before it is due."
+                  checked={notify.assignmentRemindersEnabled}
+                  onChange={(v) => setNotify({ ...notify, assignmentRemindersEnabled: v })}
+                />
+                {notify.assignmentRemindersEnabled && (
+                  <select
+                    value={notify.assignmentReminderHoursBefore}
+                    onChange={(e) =>
+                      setNotify({ ...notify, assignmentReminderHoursBefore: e.target.value })
+                    }
+                    className={`${field} sm:max-w-xs`}
+                  >
+                    {HOURS_BEFORE.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div>
+                <Toggle
+                  label="Classes and calendar events"
+                  hint="A nudge before something on your calendar starts."
+                  checked={notify.eventRemindersEnabled}
+                  onChange={(v) => setNotify({ ...notify, eventRemindersEnabled: v })}
+                />
+                {notify.eventRemindersEnabled && (
+                  <select
+                    value={notify.eventReminderMinutesBefore}
+                    onChange={(e) =>
+                      setNotify({ ...notify, eventReminderMinutesBefore: e.target.value })
+                    }
+                    className={`${field} sm:max-w-xs`}
+                  >
+                    {MINUTES_BEFORE.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div>
+                <Toggle
+                  label="Daily summary"
+                  hint="One morning email: today's classes and what is due."
+                  checked={notify.dailyDigestEnabled}
+                  onChange={(v) => setNotify({ ...notify, dailyDigestEnabled: v })}
+                />
+                {notify.dailyDigestEnabled && (
+                  <input
+                    type="time"
+                    value={notify.dailyDigestTime}
+                    onChange={(e) => setNotify({ ...notify, dailyDigestTime: e.target.value })}
+                    className={`${field} sm:max-w-xs`}
+                  />
+                )}
+              </div>
+
+              <Toggle
+                label="Weekly summary"
+                hint="Sunday evening, a look at the week ahead."
+                checked={notify.weeklyDigestEnabled}
+                onChange={(v) => setNotify({ ...notify, weeklyDigestEnabled: v })}
+              />
+            </div>
+
+            <p className="mt-4 text-xs text-slate-500">
+              Times are in {notify.timeZone.replace("_", " ")}, taken from your time
+              zone above. Change it there and reminders follow.
+            </p>
+
+            {notifyMessage && (
+              <p className="mt-4 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                {notifyMessage}
+              </p>
+            )}
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="submit"
+                disabled={savingNotify}
+                className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {savingNotify ? "Saving..." : "Save notifications"}
+              </button>
+
+              {/*
+                Goes only to your own address, so it is safe to leave enabled
+                even before sending works - with no provider it prints to the
+                API terminal, which is exactly what you want to see while
+                setting one up.
+              */}
+              <button
+                type="button"
+                onClick={sendTest}
+                disabled={testing}
+                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                {testing ? "Sending..." : "Send a test email"}
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
+
       {/* Password */}
       <section className={`mt-6 ${card}`}>
         <h2 className="font-medium text-slate-900">Change password</h2>
@@ -368,6 +597,41 @@ export default function SettingsPage() {
           be undone.
         </p>
       </section>
+    </div>
+  );
+}
+
+/**
+ * A labelled on/off switch.
+ *
+ * A real button with role="switch" rather than a styled checkbox, so it
+ * announces itself properly to a screen reader and works from the keyboard
+ * without any extra handling.
+ */
+function Toggle({ label, hint, checked, onChange }) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <span className="block text-sm font-medium text-slate-900">{label}</span>
+        {hint && <span className="block text-xs text-slate-500">{hint}</span>}
+      </div>
+
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition ${
+          checked ? "bg-indigo-600" : "bg-slate-300"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+            checked ? "left-[1.375rem]" : "left-0.5"
+          }`}
+        />
+      </button>
     </div>
   );
 }

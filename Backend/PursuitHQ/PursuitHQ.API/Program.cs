@@ -121,6 +121,31 @@ builder.Services.AddScoped<IStudyChatService, StudyChatService>();
 builder.Services.AddScoped<ICalendarFeedService, CalendarFeedService>();
 builder.Services.AddScoped<IResumeAiService, ResumeAiService>();
 
+// Email. Which implementation is registered depends on whether a key exists,
+// so the reminder pipeline can be built and tested in full before a domain is
+// bought - and so a misconfigured server prints emails rather than silently
+// dropping them. Resend rejects any from-address on a domain you have not
+// verified, which is why FromAddress counts as configuration too.
+builder.Services.Configure<EmailOptions>(
+    builder.Configuration.GetSection(EmailOptions.SectionName));
+
+var emailReady =
+    !string.IsNullOrWhiteSpace(builder.Configuration["Email:ApiKey"])
+    && !string.IsNullOrWhiteSpace(builder.Configuration["Email:FromAddress"]);
+
+if (emailReady)
+{
+    builder.Services.AddHttpClient<IEmailService, ResendEmailService>(client =>
+    {
+        client.BaseAddress = new Uri("https://api.resend.com/");
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
+}
+else
+{
+    builder.Services.AddSingleton<IEmailService, ConsoleEmailService>();
+}
+
 // Singleton so the daily counts survive between requests. In-memory, so they
 // do not survive a restart and would not be shared across instances - fine for
 // a soft guard against runaway loops, not a billing control.

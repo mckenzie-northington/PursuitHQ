@@ -378,6 +378,15 @@ export const preferences = {
   saveColors: (colors) => api.put("/api/preferences/colors", { colors }),
 };
 
+export const notifications = {
+  /** Created with defaults the first time it is asked for. */
+  preferences: () => api.get("/api/notifications/preferences"),
+  savePreferences: (data) => api.put("/api/notifications/preferences", data),
+
+  /** Sends one email to your own address. Never anywhere else. */
+  sendTest: () => api.post("/api/notifications/test", {}),
+};
+
 export const calendar = {
   /** Everything on the calendar between two dates (YYYY-MM-DD). */
   range: (from, to) => api.get(`/api/calendar?from=${from}&to=${to}`),

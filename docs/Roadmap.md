@@ -216,17 +216,21 @@ dark-mode user would see a white flash on every page load.
 `dotnet run` in `PursuitHQ.API` (port 5051) and `npm run dev` in
 `Frontend/pursuithq-web` (port 3000).
 
-## Phase 7 — Dashboard — **the next obvious gap**
+## Phase 7 — Dashboard ✅
 
-The home page is still the stat cards from the first week. It does not know the
-calendar, the study tools, or the tests exist.
-
-- [ ] Aggregated `/api/dashboard` endpoint, so the page makes one request
+- [x] Aggregated `/api/dashboard` endpoint, so the page makes one request
       rather than six
-- [ ] Dashboard page with widgets and empty states: due this week, today's
-      classes, per-course progress, recent decks and test scores
+- [x] Dashboard page leading with today, then the week: today's classes, what is
+      due, recent decks and test scores
+- [x] Assignments tickable from the dashboard itself
 
-## Phase 8 — Career growth
+The calendar and the dashboard read the same day through one shared
+`ICalendarFeedService`, so the two pages cannot disagree about what is on it.
+
+## Phase 8 — Career growth — **the next gap**
+
+The last pillar of the original idea with no code behind it. Same shape as
+courses and assignments; build one entity end to end before starting the next.
 
 - [ ] Goals, skills, and certifications endpoints and pages
 
@@ -247,7 +251,10 @@ calendar, the study tools, or the tests exist.
 - [x] Truncation for large documents (40k characters of source per request)
 - [x] Graceful failure: no partial decks, no unsaved-but-shown guides
 - [ ] `StudyPlannerAiService` and study session endpoints
-- [ ] `ResumeAiService`: content suggestions + format check, and the resume editor
+- [x] `ResumeAiService`: import from a file, a written review, and the resume
+      editor at `/resume` — split view, printable preview, rearrangeable
+      sections, and free-typed sections with bold and bullets. The format check
+      is deterministic C# so it still runs when the AI allowance is gone
 
 **How the three tools reach the student**
 

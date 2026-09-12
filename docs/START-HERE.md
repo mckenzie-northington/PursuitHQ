@@ -16,7 +16,7 @@ backend code, and the terminals.
 1. Open **VS Code** (Windows key → type `code` → Enter)
 2. Menu bar → **File** → **Open Folder…**
 3. Navigate to and select this folder:
-   `C:\Users\mcken\OneDrive\Desktop\Personal Projects\PursuitHQ`
+   `C:\Users\mcken\Desktop\Personal Projects\PursuitHQ`
    (select the folder itself — do not go inside it)
 4. Click **Select Folder**
 
@@ -88,7 +88,7 @@ say **Running**. If not, right-click → **Start**.
 
 **The easy way:** open a terminal in VS Code (`Terminal` → `New Terminal`) and run:
 ```powershell
-cd "C:\Users\mcken\OneDrive\Desktop\Personal Projects\PursuitHQ"
+cd "C:\Users\mcken\Desktop\Personal Projects\PursuitHQ"
 .\start-dev.ps1
 ```
 The `.\` prefix is required — PowerShell will not run a script from the current
@@ -106,20 +106,20 @@ your browser. Leave both windows open while you work.
 
 Terminal 1 — the API:
 ```powershell
-cd "C:\Users\mcken\OneDrive\Desktop\Personal Projects\PursuitHQ\Backend\PursuitHQ\PursuitHQ.API"
+cd "C:\Users\mcken\Desktop\Personal Projects\PursuitHQ\Backend\PursuitHQ\PursuitHQ.API"
 dotnet run
 ```
 
 Terminal 2 — the website:
 ```powershell
-cd "C:\Users\mcken\OneDrive\Desktop\Personal Projects\PursuitHQ\Frontend\pursuithq-web"
+cd "C:\Users\mcken\Desktop\Personal Projects\PursuitHQ\Frontend\pursuithq-web"
 npm run dev
 ```
 
 **First time on a new machine or after a fresh clone**, the website also needs its
 packages and env file:
 ```powershell
-cd "C:\Users\mcken\OneDrive\Desktop\Personal Projects\PursuitHQ\Frontend\pursuithq-web"
+cd "C:\Users\mcken\Desktop\Personal Projects\PursuitHQ\Frontend\pursuithq-web"
 npm install
 Copy-Item .env.example .env.local
 ```
@@ -191,10 +191,10 @@ what was kept so it could come back later.
 
 ## 5. What you are building next
 
-**Phase 7 — the dashboard.** It is the page you land on every time and the only
-one that has not been touched since week one. It knows nothing about the
-calendar, the study tools, or your test scores. Worth one aggregated
-`/api/dashboard` endpoint so the page makes a single request rather than six.
+**Phase 8 — career growth.** Goals, skills, and certifications: the last pillar
+of the original PursuitHQ idea that has no code behind it. Three entities with
+the same shape as courses and assignments, so the pattern is one you have built
+before — endpoints, then pages, one entity finished end to end before the next.
 
 Other things queued up, none blocking the others:
 
@@ -204,9 +204,11 @@ Other things queued up, none blocking the others:
   and it makes password reset real, since the link would arrive by email instead
   of the API log. Needs a Resend account, a verified sending domain, and an
   external cron. More setup than code, and parts cannot be tested locally.
-- **Phase 8 — Career growth.** Goals, skills, and certifications.
-- **Resume tools.** `ResumeAiService` and the editor, the last unbuilt piece of
-  Phase 9.
+- **Analytics (Phase 10).** Charts over what you already collect: assignments,
+  test scores, goals.
+- **Security before anyone else uses it.** The JWT belongs in an httpOnly cookie,
+  and `ApplicationUser.TimeZone` has to exist before "overdue" runs on a server
+  in another time zone.
 
 **Build one thing end to end before starting the next.** Flashcards, then the
 chat, then practice tests each went generate → save → use before the next began.
@@ -296,19 +298,13 @@ breaking something.
 
 **Verify the push actually happened.** Run `git status` afterwards and look for
 `Your branch is up to date with 'origin/main'`. "Writing objects: 100%" in the
-output is *not* proof — git prints that during its own cleanup too, and a push
-blocked by OneDrive can look identical to one that worked.
+output is *not* proof — git prints that during its own cleanup too.
 
-Worth doing once, if you have not already:
-
-```powershell
-git config gc.auto 0
-```
-
-That stops git from running its automatic cleanup, which is what collides with
-OneDrive and produces the endless `Deletion of directory '.git/objects/xx' failed.
-Should I try again? (y/n)` prompt. Answer **n** to that, never **y** — `y` retries
-the same blocked delete forever.
+**Push, do not just commit.** On 12 September the whole working folder was
+emptied — every tracked file, and the contents of `.git` with it. Everything came
+back from GitHub because it had been pushed an hour earlier; the only work at
+risk was the four files pushed after. A commit that never left the laptop would
+have gone with the laptop's copy.
 
 ---
 
@@ -327,7 +323,9 @@ the same blocked delete forever.
 | "Too many failed attempts. Locked for 15 minutes." | Five wrong passwords | Wait 15 minutes, or in pgAdmin: `UPDATE "AspNetUsers" SET "LockoutEnd" = NULL, "AccessFailedCount" = 0;` — the double quotes are required |
 | pgAdmin: `syntax error at or near "SELECT"` on a line you did not write | Leftover SQL still in the Query Tool | Ctrl+A, Delete, then paste just the one statement |
 | `Unable to create '.git/index.lock': File exists` | A git process died and left a lock | `Remove-Item .git\index.lock` from the project root, then retry |
-| `Deletion of directory '.git/objects/xx' failed (y/n)` | OneDrive holding git files | Press **n** (never `y`), then `git status` to see what actually completed. `git config gc.auto 0` prevents it |
+| `Deletion of directory '.git/objects/xx' failed (y/n)` | OneDrive holding git files — should not recur now the repo is out of OneDrive | Press **n** (never `y`), then `git status` to see what actually completed |
+| Files or whole folders have vanished from the project | Happened once, 12 Sep, while the repo was in OneDrive | Do not run git in the folder. Re-clone from GitHub into a fresh folder, then check OneDrive's recycle bin for anything newer than the last push |
+| `Remove-Item` says "the item is in use" | Your terminal is inside the folder you are deleting | `cd` somewhere else first, then delete |
 | Pushed but still "ahead by N commits" | The push did not run — what you saw was git's cleanup | Run `git push` again and look for `abc123..def456  main -> main` |
 | Swagger shows no endpoints | App rebuilt but not restarted | Stop the app fully (Ctrl+C), then `dotnet run` again |
 | Swagger says `FolderNotFound` on an optional field | Swagger pre-fills optional numbers with `0`, and there is no id 0 | Clear the field before executing |
@@ -351,10 +349,12 @@ Tracked in `docs/README.md`, repeated here so they are not forgotten:
   to an httpOnly cookie before other students use PursuitHQ.
 - **"Overdue" uses the server's clock.** Correct on your laptop, wrong on a UTC
   server. Needs `ApplicationUser.TimeZone` before deployment.
-- **The project lives inside OneDrive.** OneDrive occasionally locks git files,
-  which shows up as `index.lock` errors or failed cleanup during commits. Neither
-  is dangerous — the fixes are in the table above. Pausing OneDrive sync (tray icon
-  → gear → Pause syncing) while working avoids it entirely.
+- **The project no longer lives in OneDrive.** It moved to
+  `C:\Users\mcken\Desktop\Personal Projects\PursuitHQ` on 12 September, after
+  OneDrive emptied the folder — every tracked file and the inside of `.git` with
+  it. GitHub is the backup now, which means pushing is not optional. Note that
+  `C:\Users\mcken\Desktop` and `C:\Users\mcken\OneDrive\Desktop` are two
+  different folders on this machine; the old, emptied copy is in the second one.
 - **Gemini free tier uses your content to improve Google's products.** Fine while
   you are the only user; needs a privacy disclosure or a paid tier before anyone
   else uses the AI features.

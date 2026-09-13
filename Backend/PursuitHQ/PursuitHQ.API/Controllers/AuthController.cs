@@ -1,8 +1,10 @@
 ﻿using System.Security.Claims;
+using System.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using PursuitHQ.API.Data;
 using PursuitHQ.API.DTOs;
 using PursuitHQ.API.DTOs.Auth;
@@ -30,8 +32,12 @@ namespace PursuitHQ.API.Controllers
             ApplicationDbContext db,
             IWebHostEnvironment environment,
             IConfiguration configuration,
+            IEmailQueue emailQueue,
+            IOptions<EmailOptions> emailOptions,
             ILogger<AuthController> logger)
         {
+            _emailQueue = emailQueue;
+            _emailOptions = emailOptions.Value;
             _userManager = userManager;
             _signInManager = signInManager;
             _tokenService = tokenService;
@@ -40,6 +46,9 @@ namespace PursuitHQ.API.Controllers
             _configuration = configuration;
             _logger = logger;
         }
+
+        private readonly IEmailQueue _emailQueue;
+        private readonly EmailOptions _emailOptions;
 
         /// <summary>Creates a new student account and returns a JWT.</summary>
         [HttpPost("register")]
@@ -193,10 +202,15 @@ namespace PursuitHQ.API.Controllers
                 + $"?email={Uri.EscapeDataString(dto.Email)}"
                 + $"&token={Uri.EscapeDataString(token)}";
 
-            // TODO (Phase 3b): send this by email instead of logging it.
-            _logger.LogWarning(
-                "PASSWORD RESET requested for {Email}. Until email is set up, use this link:\n{Url}",
-                dto.Email, resetUrl);
+            SendResetEmail(user, dto.Email, resetUrl);
+
+            if (_environment.IsDevelopment())
+            {
+                // Still logged in development, so a reset can be tested without
+                // waiting on a mailbox.
+                _logger.LogInformation(
+                    "PASSWORD RESET for {Email}. Link:\n{Url}", dto.Email, resetUrl);
+            }
 
             if (_environment.IsDevelopment())
             {
@@ -214,6 +228,50 @@ namespace PursuitHQ.API.Controllers
         /// leaving them locked out of an account they have proven they own
         /// would be absurd.
         /// </summary>
+        /// <summary>
+        /// Queues the reset email rather than waiting for it to send.
+        ///
+        /// Not only for speed. Awaiting the send would make this endpoint
+        /// measurably slower for an address that has an account than for one
+        /// that does not, and that difference is enough to enumerate who has
+        /// signed up - which is the whole thing the generic response above
+        /// exists to prevent. Queueing makes both paths cost the same.
+        /// </summary>
+        private void SendResetEmail(ApplicationUser user, string email, string resetUrl)
+        {
+            var name = string.IsNullOrWhiteSpace(user.FirstName) ? "there" : user.FirstName;
+
+            var html =
+                $"<p>Hi {WebUtility.HtmlEncode(name)},</p>"
+                + "<p>Someone asked to reset the password on your PursuitHQ account. "
+                + "If that was you, use this link within the hour:</p>"
+                + $"<p><a href=\"{resetUrl}\" style=\"display:inline-block;background:#4f46e5;"
+                + "color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;"
+                + "font-weight:600\">Choose a new password</a></p>"
+                + "<p style=\"font-size:12px;color:#64748b\">If the button does not work, paste "
+                + $"this into your browser:<br>{WebUtility.HtmlEncode(resetUrl)}</p>"
+                + "<p>If it was not you, ignore this email. Nothing has changed, and your "
+                + "current password still works.</p>";
+
+            var text =
+                $"Hi {name},\n\n"
+                + "Someone asked to reset the password on your PursuitHQ account. If that was "
+                + "you, open this link within the hour:\n\n"
+                + $"{resetUrl}\n\n"
+                + "If it was not you, ignore this email. Nothing has changed, and your current "
+                + "password still works.";
+
+            _emailQueue.Enqueue(new EmailMessage(
+                email,
+                name,
+                "Reset your PursuitHQ password",
+                // showPreferences: false - this is not something you can opt out
+                // of, and a footer offering to change your email settings would
+                // suggest otherwise.
+                EmailLayout.Html("Reset your password", html, _emailOptions.AppUrl, false),
+                EmailLayout.Text("Reset your password", text, _emailOptions.AppUrl, false)));
+        }
+
         [HttpPost("reset-password")]
         [AllowAnonymous]
         public async Task<IActionResult> ResetPassword(ResetPasswordDto dto)

@@ -9,19 +9,39 @@ export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [resentAt, setResentAt] = useState(null);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function send() {
     setError("");
     setBusy(true);
 
     try {
-      setSent(await auth.forgotPassword(email));
+      const result = await auth.forgotPassword(email);
+      setSent(result);
+      return true;
     } catch (err) {
       setError(err.message);
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setResentAt(null);
+    await send();
+  }
+
+  async function resend() {
+    if (await send()) setResentAt(new Date());
+  }
+
+  /** Back to the form, with the address still in the box to correct. */
+  function startOver() {
+    setSent(null);
+    setResentAt(null);
+    setError("");
   }
 
   return (
@@ -36,27 +56,59 @@ export default function ForgotPasswordPage() {
 
         {sent ? (
           <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-sm text-slate-700">{sent.message}</p>
+            <p className="text-sm font-medium text-slate-900">Check your email</p>
 
             {/*
-              Only ever present in development. The API refuses to include the
-              link in any other environment, because handing the token back to
-              whoever asked would let anyone reset anyone's password.
+              The address is shown back because getting it wrong is the most
+              likely reason nothing arrives, and you cannot spot a typo you
+              cannot see.
+
+              Still phrased as a condition. Saying "sent" outright would confirm
+              that an account exists for this address, and anyone can type any
+              address into this box - which is the whole reason the API answers
+              the same way either way.
             */}
-            {sent.developmentResetUrl && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                <p className="font-medium">Development mode</p>
-                <p className="mt-1">
-                  Email is not set up yet, so the link is shown here instead of being sent.
-                </p>
-                <Link
-                  href={sent.developmentResetUrl.replace(/^https?:\/\/[^/]+/, "")}
-                  className="mt-2 block font-medium text-indigo-600 hover:underline"
-                >
-                  Open the reset link &rarr;
-                </Link>
+            <p className="text-sm text-slate-700">
+              If an account exists for{" "}
+              <span className="font-medium text-slate-900">{email}</span>, a reset link is on
+              its way. It is good for one hour.
+            </p>
+
+            <p className="text-sm text-slate-600">
+              Nothing yet? Give it a minute and check your spam folder.
+            </p>
+
+            {error && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
               </div>
             )}
+
+            {resentAt && !error && (
+              <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                Sent again at {resentAt.toLocaleTimeString()}.
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={resend}
+                disabled={busy}
+                className="w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {busy ? "Sending..." : "Send it again"}
+              </button>
+
+              <button
+                type="button"
+                onClick={startOver}
+                disabled={busy}
+                className="w-full rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Use a different email
+              </button>
+            </div>
 
             <Link
               href="/login"

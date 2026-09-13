@@ -17,7 +17,14 @@ namespace PursuitHQ.API.Services
     /// </summary>
     public static class EmailLayout
     {
-        public static string Html(string heading, string bodyHtml, string appUrl)
+        /// <param name="showPreferences">
+        /// False for mail you cannot opt out of - a password reset is sent
+        /// because someone asked for it, and offering to "change what you get
+        /// emailed about" underneath implies a setting that does not and should
+        /// not exist. Reminders are the opposite: those must always carry it.
+        /// </param>
+        public static string Html(
+            string heading, string bodyHtml, string appUrl, bool showPreferences = true)
         {
             var settings = $"{appUrl.TrimEnd('/')}/settings";
 
@@ -35,10 +42,16 @@ namespace PursuitHQ.API.Services
             sb.Append("<hr style=\"border:none;border-top:1px solid #e2e8f0;margin:28px 0 12px\">");
 
             sb.Append("<p style=\"font-size:12px;color:#64748b;margin:0\">")
-              .Append("Sent by PursuitHQ. ")
-              .Append("<a href=\"").Append(settings).Append("\" style=\"color:#4f46e5\">")
-              .Append("Change what you get emailed about</a>.")
-              .Append("</p>");
+              .Append("Sent by PursuitHQ.");
+
+            if (showPreferences)
+            {
+                sb.Append(' ')
+                  .Append("<a href=\"").Append(settings).Append("\" style=\"color:#4f46e5\">")
+                  .Append("Change what you get emailed about</a>.");
+            }
+
+            sb.Append("</p>");
 
             sb.Append("</div>");
 
@@ -50,7 +63,8 @@ namespace PursuitHQ.API.Services
         /// prefer it, and a message with no text part is more likely to be
         /// treated as spam.
         /// </summary>
-        public static string Text(string heading, string body, string appUrl)
+        public static string Text(
+            string heading, string body, string appUrl, bool showPreferences = true)
         {
             var sb = new StringBuilder();
 
@@ -61,7 +75,11 @@ namespace PursuitHQ.API.Services
             sb.AppendLine();
             sb.AppendLine("--");
             sb.AppendLine("Sent by PursuitHQ.");
-            sb.AppendLine($"Change what you get emailed about: {appUrl.TrimEnd('/')}/settings");
+
+            if (showPreferences)
+            {
+                sb.AppendLine($"Change what you get emailed about: {appUrl.TrimEnd('/')}/settings");
+            }
 
             return sb.ToString();
         }

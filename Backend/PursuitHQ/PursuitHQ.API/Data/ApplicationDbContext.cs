@@ -48,6 +48,8 @@ namespace PursuitHQ.API.Data
 
         public DbSet<Reminder> Reminders => Set<Reminder>();
 
+        public DbSet<SavedJob> SavedJobs => Set<SavedJob>();
+
         /// <summary>
         /// Every DateTime column is PostgreSQL "timestamp with time zone", and
         /// Npgsql refuses to write a DateTime whose Kind is Unspecified to one.
@@ -199,6 +201,17 @@ namespace PursuitHQ.API.Data
             builder.Entity<Assignment>().HasIndex(a => a.DueDate);
             builder.Entity<CalendarEvent>().HasIndex(e => new { e.UserId, e.StartDateTime });
             builder.Entity<Reminder>().HasIndex(r => new { r.UserId, r.Date });
+            builder.Entity<SavedJob>().HasIndex(j => new { j.UserId, j.SavedAt });
+
+            // Deleting a resume must not take the saved jobs with it. The score
+            // was real when it was recorded, and the posting text is kept on the
+            // row anyway - losing the whole job because a resume was tidied up
+            // would be the wrong trade.
+            builder.Entity<SavedJob>()
+                .HasOne(j => j.Resume)
+                .WithMany()
+                .HasForeignKey(j => j.ResumeId)
+                .OnDelete(DeleteBehavior.SetNull);
             builder.Entity<StudySession>().HasIndex(s => new { s.UserId, s.ScheduledDate });
             builder.Entity<JobApplication>().HasIndex(j => new { j.UserId, j.Status });
             builder.Entity<StudyMaterial>().HasIndex(m => new { m.CourseId, m.FolderId });

@@ -29,6 +29,7 @@ namespace PursuitHQ.API.Controllers
         private readonly ITextExtractionService _textExtraction;
         private readonly IResumeAiService _resumeAi;
         private readonly IAiUsageLimiter _limiter;
+        private readonly IJobDescriptionFetcher _jobFetcher;
         private readonly ILogger<ResumesController> _logger;
 
         public ResumesController(
@@ -36,13 +37,135 @@ namespace PursuitHQ.API.Controllers
             ITextExtractionService textExtraction,
             IResumeAiService resumeAi,
             IAiUsageLimiter limiter,
+            IJobDescriptionFetcher jobFetcher,
             ILogger<ResumesController> logger)
         {
             _db = db;
             _textExtraction = textExtraction;
             _resumeAi = resumeAi;
             _limiter = limiter;
+            _jobFetcher = jobFetcher;
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Scores this resume against one job description.
+        ///
+        /// The posting arrives one of three ways - pasted text, a link, or an
+        /// uploaded file - and all three end up as the same block of text before
+        /// anything else happens. Multipart rather than JSON because one of the
+        /// three is a file, and having a single endpoint keeps the three paths
+        /// from drifting apart.
+        /// </summary>
+        [HttpPost("{id:int}/match")]
+        [RequestSizeLimit(MaxUploadBytes)]
+        public async Task<ActionResult<JobMatchDto>> Match(
+            int id,
+            [FromForm] string? jobText,
+            [FromForm] string? jobUrl,
+            IFormFile? file,
+            CancellationToken ct)
+        {
+            var resume = await FindAsync(id);
+            if (resume is null) return NotFound(NotFoundError());
+
+            if (!_resumeAi.IsConfigured)
+            {
+                return StatusCode(503, new ApiErrorDto(
+                    "AiNotConfigured", "AI is not set up on this server, so this cannot be compared."));
+            }
+
+            var (posting, error) = await ReadPostingAsync(jobText, jobUrl, file, ct);
+            if (error is not null) return error;
+
+            var usage = _limiter.Peek(CurrentUserId);
+            if (usage.Exceeded)
+            {
+                return StatusCode(429, new ApiErrorDto(
+                    "DailyLimitReached",
+                    $"You have used all {usage.Limit} AI requests for today."));
+            }
+
+            _limiter.Consume(CurrentUserId);
+
+            try
+            {
+                return Ok(await _resumeAi.MatchAsync(Deserialise(resume.Content), posting, ct));
+            }
+            catch (StudyToolException ex)
+            {
+                return StatusCode(502, new ApiErrorDto("MatchFailed", ex.Message));
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning(ex, "AI provider call failed during job match");
+                return StatusCode(502, new ApiErrorDto("AiUnavailable", ex.Message));
+            }
+        }
+
+        /// <summary>
+        /// Turns whichever of the three inputs was given into plain text.
+        ///
+        /// Checked in order of how much the student clearly meant it: text they
+        /// typed wins over a file they attached, which wins over a link. Nothing
+        /// silently falls through to a different source than the one they used.
+        /// </summary>
+        private async Task<(string Posting, ActionResult? Error)> ReadPostingAsync(
+            string? jobText, string? jobUrl, IFormFile? file, CancellationToken ct)
+        {
+            if (!string.IsNullOrWhiteSpace(jobText))
+            {
+                return jobText.Trim().Length < 100
+                    ? ("", BadRequest(new ApiErrorDto(
+                        "PostingTooShort",
+                        "That is too short to compare against. Paste the whole posting, "
+                        + "including the requirements.")))
+                    : (jobText.Trim(), null);
+            }
+
+            if (file is not null && file.Length > 0)
+            {
+                var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+
+                if (!AllowedExtensions.Contains(extension))
+                {
+                    return ("", BadRequest(new ApiErrorDto(
+                        "UnsupportedFile", "Upload a PDF, Word document, or plain text file.")));
+                }
+
+                try
+                {
+                    await using var stream = file.OpenReadStream();
+
+                    var extracted = await _textExtraction.ExtractAsync(
+                        stream, file.FileName, file.ContentType ?? "application/octet-stream",
+                        maxCharacters: ResumeAiService.MaxJobDescriptionCharacters, ct: ct);
+
+                    return extracted.IsEmpty
+                        ? ("", StatusCode(422, new ApiErrorDto(
+                            "NoTextFound", "No readable text was found in that file.")))
+                        : (extracted.Text, null);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not read job description file {Name}", file.FileName);
+
+                    return ("", BadRequest(new ApiErrorDto(
+                        "UnreadableFile", "That file could not be read.")));
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(jobUrl))
+            {
+                var page = await _jobFetcher.FetchAsync(jobUrl, ct);
+
+                return page.Ok
+                    ? (page.Text, null)
+                    : ("", StatusCode(422, new ApiErrorDto("PageUnreadable", page.Error ?? "That page could not be read.")));
+            }
+
+            return ("", BadRequest(new ApiErrorDto(
+                "NoPosting", "Paste the job description, upload it, or give a link to it.")));
         }
 
         [HttpGet]

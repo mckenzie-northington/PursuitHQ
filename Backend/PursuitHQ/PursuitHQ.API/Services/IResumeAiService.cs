@@ -19,6 +19,17 @@ namespace PursuitHQ.API.Services
         Task<ResumeContentDto> ParseAsync(string resumeText, CancellationToken ct = default);
 
         /// <summary>
+        /// Scores a resume against one job description.
+        ///
+        /// The model's job is to pull the posting's requirements apart and say,
+        /// with evidence, which ones the resume answers. The percentage is
+        /// arithmetic done afterwards - see JobMatchDto for why that split
+        /// matters.
+        /// </summary>
+        Task<JobMatchDto> MatchAsync(
+            ResumeContentDto resume, string jobDescription, CancellationToken ct = default);
+
+        /// <summary>
         /// Reviews the content: what is vague, what is unsupported, what is
         /// missing. Format problems are caught by rules instead.
         /// </summary>

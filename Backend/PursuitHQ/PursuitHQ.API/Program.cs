@@ -121,6 +121,18 @@ builder.Services.AddScoped<IStudyChatService, StudyChatService>();
 builder.Services.AddScoped<ICalendarFeedService, CalendarFeedService>();
 builder.Services.AddScoped<IResumeAiService, ResumeAiService>();
 
+// Reads a job posting from a URL so a resume can be scored against it. A typed
+// HttpClient for pooling and a hard timeout; redirects are followed by hand
+// inside the service so every hop can be checked against private addresses.
+builder.Services.AddHttpClient<IJobDescriptionFetcher, JobDescriptionFetcher>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AllowAutoRedirect = false
+});
+
 // Email. Which implementation is registered depends on whether a key exists,
 // so the reminder pipeline can be built and tested in full before a domain is
 // bought - and so a misconfigured server prints emails rather than silently

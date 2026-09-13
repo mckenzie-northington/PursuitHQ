@@ -36,6 +36,25 @@ export function getStoredUser() {
   return raw ? JSON.parse(raw) : null;
 }
 
+/**
+ * What to do when the API says the token is no longer good.
+ *
+ * Tokens last an hour. Nothing used to act on a 401, so the app simply showed
+ * "Request failed (401)" on whatever page you were on and left you to work out
+ * that you had been signed out for the last twenty minutes.
+ *
+ * Handled here rather than in each page, because every call can hit it and the
+ * answer is always the same.
+ */
+function sessionExpired() {
+  clearSession();
+
+  if (typeof window === "undefined") return;
+  if (window.location.pathname.startsWith("/login")) return;
+
+  window.location.href = "/login?expired=1";
+}
+
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
@@ -88,6 +107,11 @@ async function request(path, { method = "GET", body } = {}) {
     }
   }
 
+  if (res.status === 401) {
+    sessionExpired();
+    throw new ApiError("Your session expired. Sign in again.", 401);
+  }
+
   if (!res.ok) {
     // The API returns { error, message, details } - see docs/ApiDesign.md
     const message = data?.message || `Request failed (${res.status})`;
@@ -118,6 +142,11 @@ async function upload(path, formData) {
   let data = null;
   if (text) {
     try { data = JSON.parse(text); } catch { data = null; }
+  }
+
+  if (res.status === 401) {
+    sessionExpired();
+    throw new ApiError("Your session expired. Sign in again.", 401);
   }
 
   if (!res.ok) {
@@ -315,6 +344,13 @@ export const flashcards = {
     api.post(`/api/flashcard-decks/${deckId}/cards/${cardId}/review`, { correct }),
 };
 
+export const savedJobs = {
+  list: () => api.get("/api/saved-jobs"),
+  get: (id) => api.get(`/api/saved-jobs/${id}`),
+  create: (data) => api.post("/api/saved-jobs", data),
+  remove: (id) => api.del(`/api/saved-jobs/${id}`),
+};
+
 export const resumes = {
   list: () => api.get("/api/resumes"),
   get: (id) => api.get(`/api/resumes/${id}`),
@@ -327,6 +363,20 @@ export const resumes = {
     const form = new FormData();
     form.append("file", file);
     return upload("/api/resumes/import", form);
+  },
+
+  /**
+   * Scores the resume against one job posting.
+   *
+   * Send exactly one of text, url or file. Multipart because one of the three
+   * is a file, and the API reads them in that order of preference.
+   */
+  match: (id, { text, url, file }) => {
+    const form = new FormData();
+    if (text) form.append("jobText", text);
+    if (url) form.append("jobUrl", url);
+    if (file) form.append("file", file);
+    return upload(`/api/resumes/${id}/match`, form);
   },
 
   /** Checks the resume. Never edits it. */

@@ -122,6 +122,172 @@ namespace PursuitHQ.API.Services
 
         // ---------- reviewing ----------
 
+        // ---------- matching against a job description ----------
+
+        /// <summary>A posting longer than this is a careers page, not a posting.</summary>
+        public const int MaxJobDescriptionCharacters = 15_000;
+
+        public async Task<JobMatchDto> MatchAsync(
+            ResumeContentDto resume, string jobDescription, CancellationToken ct = default)
+        {
+            var posting = jobDescription.Length > MaxJobDescriptionCharacters
+                ? jobDescription[..MaxJobDescriptionCharacters]
+                : jobDescription;
+
+            var raw = await CallAsync(BuildMatchPrompt(resume, posting), _options.ResumeModel, ct);
+            var json = ExtractJsonObject(raw);
+
+            if (json is null)
+            {
+                throw new StudyToolException(
+                    "The comparison came back in a shape that could not be read. Try again.");
+            }
+
+            try
+            {
+                var match = JsonSerializer.Deserialize<JobMatchDto>(json, Json)
+                            ?? throw new JsonException("null");
+
+                match.Requirements = (match.Requirements ?? new())
+                    .Where(r => !string.IsNullOrWhiteSpace(r.Requirement))
+                    .Take(30)
+                    .ToList();
+
+                foreach (var requirement in match.Requirements)
+                {
+                    requirement.Status = NormaliseStatus(requirement.Status);
+                    requirement.Requirement = Clip(requirement.Requirement, 300) ?? "";
+                    requirement.Evidence = Clip(requirement.Evidence, 400);
+                }
+
+                match.Suggestions = (match.Suggestions ?? new())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Take(8)
+                    .Select(s => Clip(s, 400)!)
+                    .ToList();
+
+                match.RoleTitle = Clip(match.RoleTitle, 200);
+                match.Company = Clip(match.Company, 200);
+                match.Summary = Clip(match.Summary, 1500) ?? "";
+
+                Score(match);
+
+                match.MatchedAt = DateTime.UtcNow;
+
+                return match;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Job match JSON did not deserialise");
+
+                throw new StudyToolException(
+                    "The comparison came back in a shape that could not be read. Try again.");
+            }
+        }
+
+        /// <summary>
+        /// Turns the requirement list into a percentage.
+        ///
+        /// Required items are worth double a preferred one, and a partial match
+        /// counts as half. Both are judgement calls rather than laws, but they
+        /// are at least consistent judgement calls: the same resume against the
+        /// same posting gives the same number every time, and every point can be
+        /// traced to a line the student can read.
+        ///
+        /// A posting with no extractable requirements scores nothing rather than
+        /// defaulting to something flattering.
+        /// </summary>
+        private static void Score(JobMatchDto match)
+        {
+            match.MetCount = match.Requirements.Count(r => r.Status == "met");
+            match.PartialCount = match.Requirements.Count(r => r.Status == "partial");
+            match.MissingCount = match.Requirements.Count(r => r.Status == "missing");
+
+            double earned = 0;
+            double possible = 0;
+
+            foreach (var requirement in match.Requirements)
+            {
+                var weight = requirement.IsRequired ? 2.0 : 1.0;
+
+                possible += weight;
+
+                earned += requirement.Status switch
+                {
+                    "met" => weight,
+                    "partial" => weight / 2,
+                    _ => 0
+                };
+            }
+
+            match.Score = possible <= 0 ? 0 : (int)Math.Round(earned / possible * 100);
+        }
+
+        private static string NormaliseStatus(string? status) =>
+            (status ?? "").Trim().ToLowerInvariant() switch
+            {
+                "met" or "yes" or "strong" or "full" => "met",
+                "partial" or "weak" or "some" or "maybe" => "partial",
+                _ => "missing"
+            };
+
+        private static string BuildMatchPrompt(ResumeContentDto resume, string posting)
+        {
+            var sb = new StringBuilder();
+
+            sb.AppendLine("Compare a college student's resume against one job posting.");
+            sb.AppendLine();
+            sb.AppendLine("First pull the posting apart into the things it actually asks for -");
+            sb.AppendLine("skills, tools, coursework, experience, qualifications. Keep the posting's");
+            sb.AppendLine("own wording. Split compound lines: \"Java, Python, or C++\" is one");
+            sb.AppendLine("requirement, but \"a degree in CS and two years of Java\" is two.");
+            sb.AppendLine();
+            sb.AppendLine("Ignore boilerplate. Equal-opportunity statements, benefits, company");
+            sb.AppendLine("history and \"other duties as assigned\" are not requirements.");
+            sb.AppendLine();
+            sb.AppendLine("Then mark each one against the resume:");
+            sb.AppendLine("- \"met\"     - the resume clearly shows this");
+            sb.AppendLine("- \"partial\" - something related, or at a lower level than asked");
+            sb.AppendLine("- \"missing\" - nothing in the resume speaks to it");
+            sb.AppendLine();
+            sb.AppendLine("Rules that matter:");
+            sb.AppendLine("- Quote the resume in \"evidence\" for anything not missing. If you cannot");
+            sb.AppendLine("  quote it, it is not met.");
+            sb.AppendLine("- Do not credit a skill because it sounds adjacent. Python is not Java.");
+            sb.AppendLine("- \"isRequired\" is true only where the posting says required, must have, or");
+            sb.AppendLine("  lists it as a minimum qualification. Preferred and nice-to-have are false.");
+            sb.AppendLine("- Judge it as a student's resume against a student-level posting.");
+            sb.AppendLine("- Suggestions may only re-aim what is already there. Never invent");
+            sb.AppendLine("  experience, and never suggest claiming a skill the student has not shown.");
+            sb.AppendLine();
+            sb.AppendLine("Do NOT return a score or a percentage. That is worked out separately from");
+            sb.AppendLine("the list you return.");
+            sb.AppendLine();
+            sb.AppendLine("Return ONLY this JSON object, no prose and no code fences:");
+            sb.AppendLine("{");
+            sb.AppendLine("  \"roleTitle\": \"\",");
+            sb.AppendLine("  \"company\": \"\",");
+            sb.AppendLine("  \"summary\": \"two or three sentences\",");
+            sb.AppendLine("  \"requirements\": [{\"requirement\":\"\",\"status\":\"met\",");
+            sb.AppendLine("                     \"isRequired\":true,\"evidence\":\"\"}],");
+            sb.AppendLine("  \"suggestions\": [\"\"]");
+            sb.AppendLine("}");
+            sb.AppendLine();
+            sb.AppendLine("JOB POSTING:");
+            sb.AppendLine("---");
+            sb.AppendLine(posting);
+            sb.AppendLine("---");
+            sb.AppendLine();
+            sb.AppendLine("RESUME:");
+            sb.AppendLine("---");
+            sb.AppendLine(JsonSerializer.Serialize(resume, new JsonSerializerOptions { WriteIndented = true }));
+            sb.AppendLine("---");
+
+            return sb.ToString();
+        }
+
+        // ---------- reviewing ----------
+
         public async Task<ResumeReviewDto> ReviewAsync(
             ResumeContentDto resume, CancellationToken ct = default)
         {
@@ -239,13 +405,20 @@ namespace PursuitHQ.API.Services
                 _ => "medium"
             };
 
+        /// <summary>
+        /// Trims a value to a maximum length, or null when there is nothing in it.
+        ///
+        /// At class level rather than inside Sanitise, because everything that
+        /// comes back from a model needs the same treatment before it is stored
+        /// or rendered - lengths from a model are a suggestion, not a promise.
+        /// </summary>
+        private static string? Clip(string? value, int max) =>
+            string.IsNullOrWhiteSpace(value) ? null
+            : value.Length <= max ? value.Trim() : value[..max].Trim();
+
         /// <summary>Caps every string so nothing oversized reaches the database.</summary>
         private static ResumeContentDto Sanitise(ResumeContentDto resume)
         {
-            static string? Clip(string? value, int max) =>
-                string.IsNullOrWhiteSpace(value) ? null
-                : value.Length <= max ? value.Trim() : value[..max].Trim();
-
             static List<string> ClipAll(List<string>? items, int max, int maxCount) =>
                 (items ?? new List<string>())
                     .Where(i => !string.IsNullOrWhiteSpace(i))

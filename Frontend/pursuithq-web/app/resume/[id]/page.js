@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { resumes as resumesApi } from "@/lib/api";
+import { resumes as resumesApi, savedJobs as savedJobsApi } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 
 const SEVERITY = {
@@ -91,6 +91,17 @@ export default function ResumeEditorPage() {
   const [review, setReview] = useState(null);
   const [reviewing, setReviewing] = useState(false);
 
+  const [matchOpen, setMatchOpen] = useState(false);
+  const [matchMode, setMatchMode] = useState("paste");
+  const [jobText, setJobText] = useState("");
+  const [jobUrl, setJobUrl] = useState("");
+  const [jobFile, setJobFile] = useState(null);
+  const [match, setMatch] = useState(null);
+  const [matching, setMatching] = useState(false);
+  const [matchError, setMatchError] = useState("");
+  const [savingJob, setSavingJob] = useState(false);
+  const [savedJobId, setSavedJobId] = useState(null);
+
   const load = useCallback(async () => {
     try {
       const resume = await resumesApi.get(resumeId);
@@ -159,6 +170,116 @@ export default function ResumeEditorPage() {
     }
   }
 
+  /**
+   * Changes one requirement's verdict and re-scores.
+   *
+   * The AI gets these wrong in both directions - it will not credit a skill
+   * unless the resume says it in so many words, which is the right default but
+   * means real qualifications get marked missing. A score you cannot argue with
+   * is worth less than one you can.
+   */
+  function overrideRequirement(index, status) {
+    setMatch((current) => {
+      if (!current) return current;
+
+      const requirements = current.requirements.map((requirement, i) =>
+        i === index
+          ? { ...requirement, status, overridden: status !== requirement.originalStatus }
+          : requirement
+      );
+
+      return { ...current, requirements, ...tally(requirements) };
+    });
+  }
+
+  function resetOverrides() {
+    setMatch((current) => {
+      if (!current) return current;
+
+      const requirements = current.requirements.map((requirement) => ({
+        ...requirement,
+        status: requirement.originalStatus,
+        overridden: false,
+      }));
+
+      return { ...current, requirements, ...tally(requirements) };
+    });
+  }
+
+  /**
+   * Keeps the posting and the score it produced.
+   *
+   * The match is sent back exactly as the page has it, overrides included -
+   * what is worth keeping is the verdict you settled on, not the one the AI
+   * arrived at before you corrected it.
+   */
+  async function saveJob() {
+    if (!match) return;
+
+    setSavingJob(true);
+    setMatchError("");
+
+    try {
+      const saved = await savedJobsApi.create({
+        title: match.roleTitle || "Untitled role",
+        company: match.company || null,
+        url: matchMode === "url" ? jobUrl.trim() || null : null,
+        // What was actually scored. A link dies when the role closes; the text
+        // is the only durable record of what the number measured.
+        postingText: matchMode === "paste" ? jobText : match.summary || "",
+        score: match.score,
+        match,
+        resumeId: resumeId,
+      });
+
+      setSavedJobId(saved.id);
+    } catch (err) {
+      setMatchError(err.message);
+    } finally {
+      setSavingJob(false);
+    }
+  }
+
+  function clearMatch() {
+    setSavedJobId(null);
+    setJobText("");
+    setJobUrl("");
+    setJobFile(null);
+    setMatch(null);
+    setMatchError("");
+  }
+
+  async function runMatch(e) {
+    e.preventDefault();
+    setMatching(true);
+    setMatchError("");
+
+    try {
+      // Saved first, for the same reason the review is: otherwise it scores
+      // whatever was last written to the database, not what is on screen.
+      if (dirty) await save();
+
+      const result = await resumesApi.match(resumeId, {
+        text: matchMode === "paste" ? jobText : null,
+        url: matchMode === "url" ? jobUrl : null,
+        file: matchMode === "file" ? jobFile : null,
+      });
+
+      // Remember what the AI said, so an override can be undone and so the
+      // page can show which lines are its judgement and which are yours.
+      result.requirements = (result.requirements ?? []).map((requirement) => ({
+        ...requirement,
+        originalStatus: requirement.status,
+      }));
+
+      setMatch(result);
+    } catch (err) {
+      setMatchError(err.message);
+    } finally {
+      setMatching(false);
+    }
+  }
+
   if (loading || !ready) {
     return <div className="mx-auto max-w-6xl px-6 py-10 text-slate-500">Loading...</div>;
   }
@@ -196,6 +317,12 @@ export default function ResumeEditorPage() {
               {dirty ? "Unsaved changes" : savedAt ? `Saved ${savedAt.toLocaleTimeString()}` : ""}
             </span>
             <button
+              onClick={() => setMatchOpen((open) => !open)}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              Match to a job
+            </button>
+            <button
               onClick={runReview}
               disabled={reviewing}
               className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
@@ -225,6 +352,30 @@ export default function ResumeEditorPage() {
               Dismiss
             </button>
           </div>
+        )}
+
+        {matchOpen && (
+          <MatchPanel
+            mode={matchMode}
+            setMode={setMatchMode}
+            jobText={jobText}
+            setJobText={setJobText}
+            jobUrl={jobUrl}
+            setJobUrl={setJobUrl}
+            jobFile={jobFile}
+            setJobFile={setJobFile}
+            busy={matching}
+            error={matchError}
+            match={match}
+            onSubmit={runMatch}
+            onClear={clearMatch}
+            onOverride={overrideRequirement}
+            onResetOverrides={resetOverrides}
+            onSaveJob={saveJob}
+            savingJob={savingJob}
+            savedJobId={savedJobId}
+            onClose={() => setMatchOpen(false)}
+          />
         )}
 
         {review && <ReviewPanel review={review} onClose={() => setReview(null)} />}
@@ -1102,5 +1253,386 @@ function BulletList({ items }) {
         <li key={i}>{item}</li>
       ))}
     </ul>
+  );
+}
+
+/* ------------------------------------------------------------ job matching */
+
+const MATCH_MODES = [
+  { value: "paste", label: "Paste text" },
+  { value: "url", label: "Link" },
+  { value: "file", label: "Upload file" },
+];
+
+const STATUS_STYLE = {
+  met: { label: "Met", chip: "bg-green-50 text-green-700 border-green-200", dot: "bg-green-500" },
+  partial: { label: "Partly", chip: "bg-amber-50 text-amber-800 border-amber-200", dot: "bg-amber-500" },
+  missing: { label: "Missing", chip: "bg-red-50 text-red-700 border-red-200", dot: "bg-red-500" },
+};
+
+/**
+ * Compares this resume against one job posting.
+ *
+ * Three ways in, because postings arrive three ways: copied from the page,
+ * linked, or saved as a PDF. The link is the one that fails most - plenty of
+ * job boards build the posting in your browser or refuse anything that is not
+ * one - so the wording says so rather than leaving you wondering.
+ */
+function MatchPanel({
+  mode, setMode,
+  jobText, setJobText,
+  jobUrl, setJobUrl,
+  jobFile, setJobFile,
+  busy, error, match,
+  onSubmit, onClear, onClose,
+  onOverride, onResetOverrides,
+  onSaveJob, savingJob, savedJobId,
+}) {
+  const field =
+    "w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500";
+
+  const ready =
+    (mode === "paste" && jobText.trim().length >= 100) ||
+    (mode === "url" && jobUrl.trim().length > 3) ||
+    (mode === "file" && jobFile != null);
+
+  return (
+    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-medium text-slate-900">Match to a job</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Give me the posting and I will score this resume against what it asks for.
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          aria-label="Close"
+        >
+          ✕
+        </button>
+      </div>
+
+      <form onSubmit={onSubmit} className="mt-4">
+        <div className="flex flex-wrap gap-1">
+          {MATCH_MODES.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setMode(option.value)}
+              aria-pressed={mode === option.value}
+              className={`rounded-md px-3 py-1 text-sm font-medium transition ${
+                mode === option.value
+                  ? "bg-indigo-600 text-white"
+                  : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-3">
+          {mode === "paste" && (
+            <>
+              <textarea
+                rows={7}
+                value={jobText}
+                onChange={(e) => setJobText(e.target.value)}
+                placeholder="Paste the whole posting, including the requirements."
+                className={field}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                The most reliable of the three — nothing can block a copy and paste.
+              </p>
+            </>
+          )}
+
+          {mode === "url" && (
+            <>
+              <input
+                type="url"
+                value={jobUrl}
+                onChange={(e) => setJobUrl(e.target.value)}
+                placeholder="https://company.com/careers/software-intern"
+                className={field}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Works on plain company careers pages. Workday, Greenhouse, LinkedIn and
+                Indeed usually build the posting in your browser, so it arrives empty —
+                paste the text instead when that happens.
+              </p>
+            </>
+          )}
+
+          {mode === "file" && (
+            <>
+              <input
+                type="file"
+                accept=".pdf,.docx,.txt,.md"
+                onChange={(e) => setJobFile(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
+              />
+              <p className="mt-1 text-xs text-slate-500">PDF, Word, or plain text.</p>
+            </>
+          )}
+        </div>
+
+        {error && (
+          <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="submit"
+            disabled={busy || !ready}
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {busy ? "Comparing..." : match ? "Score again" : "Score my resume"}
+          </button>
+
+          {/*
+            Edit the box and press Score again to re-run against the changes.
+            Clear is for starting over with a different posting entirely - it
+            empties all three inputs, not just the visible one, so switching
+            tabs afterwards does not turn up something left behind.
+          */}
+          {(match || jobText || jobUrl || jobFile) && (
+            <button
+              type="button"
+              onClick={onClear}
+              disabled={busy}
+              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              Clear
+            </button>
+          )}
+
+          {match && (
+            <span className="text-xs text-slate-500">
+              Edit the posting above and press Score again, or Clear to start with another.
+            </span>
+          )}
+        </div>
+      </form>
+
+      {match && (
+        <MatchResult
+          match={match}
+          onOverride={onOverride}
+          onResetOverrides={onResetOverrides}
+          onSaveJob={onSaveJob}
+          savingJob={savingJob}
+          savedJobId={savedJobId}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Recomputes the percentage after an override.
+ *
+ * This must match Score() in ResumeAiService.cs: required items weigh double, a
+ * partial counts half. Two copies of one formula is normally a thing to avoid,
+ * and the honest reason for it is that the number has to move the instant you
+ * press the button - a round trip to the server to re-add numbers it already
+ * sent would make an override feel like it had not worked.
+ *
+ * If that weighting ever changes, it has to change in both places.
+ */
+function tally(requirements) {
+  let earned = 0;
+  let possible = 0;
+
+  for (const requirement of requirements) {
+    const weight = requirement.isRequired ? 2 : 1;
+    possible += weight;
+
+    if (requirement.status === "met") earned += weight;
+    else if (requirement.status === "partial") earned += weight / 2;
+  }
+
+  return {
+    score: possible <= 0 ? 0 : Math.round((earned / possible) * 100),
+    metCount: requirements.filter((r) => r.status === "met").length,
+    partialCount: requirements.filter((r) => r.status === "partial").length,
+    missingCount: requirements.filter((r) => r.status === "missing").length,
+  };
+}
+
+function MatchResult({ match, onOverride, onResetOverrides, onSaveJob, savingJob, savedJobId }) {
+  // Traffic-light bands, but the number is never shown alone - the counts sit
+  // beside it so a percentage always comes with what produced it.
+  const tone =
+    match.score >= 75 ? "text-green-700" : match.score >= 50 ? "text-amber-700" : "text-red-700";
+
+  const bar =
+    match.score >= 75 ? "bg-green-500" : match.score >= 50 ? "bg-amber-500" : "bg-red-500";
+
+  // Indexed before splitting, so an override can find its way back to the
+  // right row in the original list.
+  const indexed = match.requirements.map((r, index) => ({ ...r, index }));
+
+  const required = indexed.filter((r) => r.isRequired);
+  const preferred = indexed.filter((r) => !r.isRequired);
+
+  const overrides = match.requirements.filter((r) => r.overridden).length;
+
+  return (
+    <div className="mt-5 border-t border-slate-200 pt-5">
+      <div className="flex flex-wrap items-baseline gap-3">
+        <span className={`text-4xl font-semibold ${tone}`}>{match.score}%</span>
+        <div className="text-sm text-slate-600">
+          <p className="font-medium text-slate-900">
+            {match.roleTitle || "This posting"}
+            {match.company ? ` · ${match.company}` : ""}
+          </p>
+          <p>
+            {match.metCount} met · {match.partialCount} partly · {match.missingCount} missing
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+        <div className={`h-full rounded-full ${bar}`} style={{ width: `${match.score}%` }} />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={onSaveJob}
+          disabled={savingJob || savedJobId != null}
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+        >
+          {savingJob ? "Saving..." : savedJobId ? "Saved" : "Save this job"}
+        </button>
+
+        {savedJobId && (
+          <Link href="/resume/jobs" className="text-sm font-medium text-indigo-600 hover:underline">
+            See saved jobs
+          </Link>
+        )}
+      </div>
+
+      {match.summary && <p className="mt-3 text-sm text-slate-700">{match.summary}</p>}
+
+      {overrides > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-700">
+          <span>
+            {overrides} {overrides === 1 ? "line is" : "lines are"} your judgement, not the
+            AI's. The percentage above reflects that.
+          </span>
+          <button
+            type="button"
+            onClick={onResetOverrides}
+            className="font-medium underline underline-offset-2"
+          >
+            Undo my changes
+          </button>
+        </div>
+      )}
+
+      <RequirementList title="Required" items={required} onOverride={onOverride} />
+      <RequirementList title="Preferred" items={preferred} onOverride={onOverride} />
+
+      {match.suggestions?.length > 0 && (
+        <div className="mt-5">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            What would help
+          </h3>
+          <ul className="mt-2 space-y-1.5">
+            {match.suggestions.map((suggestion, i) => (
+              <li key={i} className="text-sm text-slate-700">
+                <span className="mr-1.5 text-indigo-500">→</span>
+                {suggestion}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p className="mt-5 text-xs text-slate-500">
+        The percentage is counted from the list above, weighting required items double
+        and a partial match as half — not a number the AI was asked to guess. Change any
+        line it got wrong and the score follows. It is a read of one posting, not a
+        verdict on your resume.
+      </p>
+    </div>
+  );
+}
+
+function RequirementList({ title, items, onOverride }) {
+  if (items.length === 0) return null;
+
+  return (
+    <div className="mt-5">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {title}
+      </h3>
+      <ul className="mt-2 space-y-2">
+        {items.map((item, i) => {
+          const style = STATUS_STYLE[item.status] ?? STATUS_STYLE.missing;
+
+          return (
+            <li key={i} className="rounded-lg border border-slate-200 p-3">
+              <div className="flex items-start gap-2">
+                <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${style.dot}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-slate-900">{item.requirement}</span>
+                    <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${style.chip}`}>
+                      {style.label}
+                    </span>
+                    {item.overridden && (
+                      <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+                        Your call
+                      </span>
+                    )}
+                  </div>
+                  {item.evidence && (
+                    <p className="mt-1 text-sm text-slate-600">
+                      <span className="mr-1 text-xs uppercase tracking-wide text-slate-400">
+                        From your resume
+                      </span>
+                      {item.evidence}
+                    </p>
+                  )}
+
+                  {/*
+                    The AI will not credit a skill unless the resume says it
+                    outright, which is the right default and still gets real
+                    qualifications wrong. Changing one here re-scores immediately.
+                  */}
+                  <div className="mt-2 flex flex-wrap items-center gap-1">
+                    <span className="mr-1 text-[11px] uppercase tracking-wide text-slate-400">
+                      I actually
+                    </span>
+                    {["met", "partial", "missing"].map((status) => (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => onOverride(item.index, status)}
+                        aria-pressed={item.status === status}
+                        className={`rounded border px-2 py-0.5 text-[11px] font-medium transition ${
+                          item.status === status
+                            ? "border-slate-400 bg-slate-100 text-slate-900"
+                            : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                        }`}
+                      >
+                        {status === "met" ? "have this" : status === "partial" ? "partly" : "do not"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

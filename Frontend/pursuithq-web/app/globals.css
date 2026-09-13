@@ -68,6 +68,12 @@
 .dark .text-indigo-600 { color: #a5b4fc; }
 .dark .text-indigo-700 { color: #c7d2fe; }
 .dark .bg-indigo-50 { background-color: rgb(99 102 241 / 0.18); }
+.dark .border-indigo-200 { border-color: rgb(99 102 241 / 0.35); }
+.dark .border-indigo-300 { border-color: rgb(99 102 241 / 0.45); }
+/* 900 is near-black indigo. On the wash above it disappears completely, which
+   is exactly what happened to the override banner on the resume matcher. */
+.dark .text-indigo-900 { color: #c7d2fe; }
+.dark .text-indigo-800 { color: #c7d2fe; }
 .dark .hover\:text-indigo-600:hover { color: #a5b4fc; }
 .dark .hover\:text-indigo-700:hover { color: #c7d2fe; }
 

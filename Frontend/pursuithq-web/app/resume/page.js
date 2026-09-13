@@ -93,10 +93,20 @@ export default function ResumesPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10">
-      <h1 className="text-2xl font-semibold">Resume</h1>
-      <p className="mt-1 text-sm text-slate-600">
-        Build one here, or bring the one you already have.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Resume</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Build one here, or bring the one you already have.
+          </p>
+        </div>
+        <Link
+          href="/resume/jobs"
+          className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+        >
+          Saved jobs
+        </Link>
+      </div>
 
       {error && (
         <div className="mt-4 flex items-start justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

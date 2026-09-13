@@ -164,6 +164,71 @@ namespace PursuitHQ.API.DTOs.Resumes
         public DateTime ReviewedAt { get; set; }
     }
 
+    // ---------- matching against a job description ----------
+
+    /// <summary>
+    /// How well a resume answers one specific job posting.
+    ///
+    /// This one does carry a percentage, unlike the general review, and the
+    /// difference is that here there is something to actually count. "How good
+    /// is this resume" has no denominator; "how many of these fourteen stated
+    /// requirements does it evidence" has one.
+    ///
+    /// The number is worked out in C# from <see cref="Requirements"/>, not asked
+    /// of the model. A model asked for a percentage produces a plausible-looking
+    /// number with nothing behind it, and it will give a different one each
+    /// time. Counting met requirements gives the same answer twice and can be
+    /// explained line by line - which is what makes it worth showing at all.
+    /// </summary>
+    public class JobMatchDto
+    {
+        /// <summary>0-100, from the requirement counts below.</summary>
+        public int Score { get; set; }
+
+        /// <summary>The role this was matched against, as the posting described it.</summary>
+        public string? RoleTitle { get; set; }
+        public string? Company { get; set; }
+
+        /// <summary>Two or three sentences on how the resume reads against this posting.</summary>
+        public string Summary { get; set; } = string.Empty;
+
+        public List<RequirementMatchDto> Requirements { get; set; } = new();
+
+        /// <summary>
+        /// Concrete changes for this posting: wording already in the resume that
+        /// could be aimed better, not invented experience.
+        /// </summary>
+        public List<string> Suggestions { get; set; } = new();
+
+        public int MetCount { get; set; }
+        public int PartialCount { get; set; }
+        public int MissingCount { get; set; }
+
+        public DateTime MatchedAt { get; set; }
+    }
+
+    public class RequirementMatchDto
+    {
+        /// <summary>The requirement, in the posting's own words where possible.</summary>
+        public string Requirement { get; set; } = string.Empty;
+
+        /// <summary>met, partial, or missing.</summary>
+        public string Status { get; set; } = "missing";
+
+        /// <summary>
+        /// True when the posting lists this as required rather than preferred.
+        /// Required items count double, because missing one is a different kind
+        /// of problem from missing a nice-to-have.
+        /// </summary>
+        public bool IsRequired { get; set; }
+
+        /// <summary>
+        /// What in the resume supports this - quoted, so a claimed match can be
+        /// checked rather than taken on faith.
+        /// </summary>
+        public string? Evidence { get; set; }
+    }
+
     public class ReviewFindingDto
     {
         /// <summary>contact, summary, education, experience, projects, skills, or format.</summary>

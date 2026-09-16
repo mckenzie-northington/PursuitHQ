@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using PursuitHQ.API.Models;
 
 namespace PursuitHQ.API.DTOs.Auth
 {
@@ -17,5 +18,12 @@ namespace PursuitHQ.API.DTOs.Auth
         public int? GraduationYear { get; set; }
 
         public string TimeZone { get; set; } = "America/New_York";
+
+        [MaxLength(200)]
+        public string? School { get; set; }
+
+        public EducationLevel EducationLevel { get; set; } = EducationLevel.NotSet;
+
+        public bool IsDiscoverable { get; set; }
     }
 }

@@ -48,19 +48,22 @@ namespace PursuitHQ.API.Services
         private readonly IEmailService _email;
         private readonly EmailOptions _options;
         private readonly ILogger<NotificationService> _logger;
+        private readonly IUserClock _clock;
 
         public NotificationService(
             ApplicationDbContext db,
             ICalendarFeedService calendar,
             IEmailService email,
             IOptions<EmailOptions> options,
-            ILogger<NotificationService> logger)
+            ILogger<NotificationService> logger,
+            IUserClock clock)
         {
             _db = db;
             _calendar = calendar;
             _email = email;
             _options = options.Value;
             _logger = logger;
+            _clock = clock;
         }
 
         private sealed record Recipient(
@@ -106,7 +109,7 @@ namespace PursuitHQ.API.Services
                     row.TimeZone,
                     row.Preference);
 
-                var localNow = LocalNow(row.TimeZone);
+                var localNow = _clock.LocalNow(row.TimeZone);
 
                 // One student's bad data must not stop everyone else's
                 // reminders, so each kind is isolated.
@@ -158,7 +161,12 @@ namespace PursuitHQ.API.Services
         private async Task AssignmentRemindersAsync(
             Recipient recipient, DateTime localNow, Totals totals, CancellationToken ct)
         {
-            var window = localNow.AddHours(recipient.Preference.AssignmentReminderHoursBefore);
+            var offsets = ReminderOffsets.Parse(recipient.Preference.AssignmentReminderHours);
+            if (offsets.Count == 0) return;
+
+            // One query covers every offset: the widest one is the furthest out
+            // anything could possibly be wanted.
+            var window = localNow.AddHours(offsets[0]);
             var earliest = localNow - AssignmentGrace;
 
             var due = await _db.Assignments
@@ -173,6 +181,9 @@ namespace PursuitHQ.API.Services
 
             foreach (var assignment in due)
             {
+                var offset = BandFor((assignment.DueDate - localNow).TotalHours, offsets);
+                if (offset is null) continue;
+
                 var course = assignment.Course?.Name ?? "your course";
                 var when = Describe(assignment.DueDate - localNow);
 
@@ -187,12 +198,42 @@ namespace PursuitHQ.API.Services
                 await SendOnceAsync(
                     recipient,
                     NotificationType.AssignmentDue,
-                    "Assignment",
+
+                    // The offset is part of what makes this reminder unique. Without
+                    // it in the key, the day-before note would look like the
+                    // week-before one that already went out, and never be sent.
+                    $"Assignment@{offset}h",
                     assignment.Id,
                     subject: $"{assignment.Title} is due {when}",
                     heading: "Coming up",
                     html, text, totals, ct);
             }
+        }
+
+        /// <summary>
+        /// Which reminder, if any, this assignment is due for right now.
+        ///
+        /// Each offset owns a band that ends where the next tighter one begins,
+        /// so an assignment sits in exactly one band at any moment. Without that,
+        /// switching on "a week before" and "the night before" together would
+        /// send both the first time the scheduler saw a deadline three days out.
+        ///
+        /// The tightest band has no lower edge, which is what keeps the old
+        /// behaviour for an assignment typed in at the last minute: added six
+        /// hours before it is due, it still gets the one reminder it can use.
+        /// </summary>
+        private static int? BandFor(double hoursAway, List<int> descending)
+        {
+            for (var i = 0; i < descending.Count; i++)
+            {
+                // Further off than even the widest reminder - nothing to send yet.
+                if (hoursAway > descending[i]) return null;
+
+                var tightest = i == descending.Count - 1;
+                if (tightest || hoursAway > descending[i + 1]) return descending[i];
+            }
+
+            return null;
         }
 
         // ---------------------------------------------------------------- 2
@@ -506,27 +547,5 @@ namespace PursuitHQ.API.Services
             : error.Length <= 500 ? error
             : error[..500];
 
-        /// <summary>
-        /// The current wall-clock time where this student is.
-        ///
-        /// An unknown or misspelled zone falls back to the server's own time
-        /// rather than throwing: a reminder an hour off is a nuisance, but one
-        /// bad row stopping the run for everybody is a real problem.
-        /// </summary>
-        private DateTime LocalNow(string? timeZoneId)
-        {
-            if (string.IsNullOrWhiteSpace(timeZoneId)) return DateTime.Now;
-
-            try
-            {
-                return TimeZoneInfo.ConvertTimeFromUtc(
-                    DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById(timeZoneId));
-            }
-            catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
-            {
-                _logger.LogWarning("Unknown time zone {TimeZone}; using server time.", timeZoneId);
-                return DateTime.Now;
-            }
-        }
     }
 }

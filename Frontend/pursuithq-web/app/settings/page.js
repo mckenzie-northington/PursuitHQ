@@ -5,24 +5,17 @@ import { useRouter } from "next/navigation";
 import { auth as authApi, notifications as notificationsApi, clearSession } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
+import TimeZoneSelect from "@/components/TimeZoneSelect";
+import TimeZoneNotice from "@/components/TimeZoneNotice";
+import { zoneLabel, DEFAULT_ZONE } from "@/lib/timezones";
+import TwoFactorSection from "@/components/TwoFactorSection";
+import { EDUCATION_LEVELS } from "@/lib/education";
+import PhotoPicker from "@/components/PhotoPicker";
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light", hint: "Always light" },
   { value: "dark", label: "Dark", hint: "Always dark" },
   { value: "system", label: "System", hint: "Follow your computer" },
-];
-
-// Where students of a US university actually are. A full tz list is 400 entries
-// of noise for a feature that only needs to get deadlines right.
-const TIME_ZONES = [
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Phoenix",
-  "America/Los_Angeles",
-  "America/Anchorage",
-  "Pacific/Honolulu",
-  "UTC",
 ];
 
 const HOURS_BEFORE = [
@@ -56,6 +49,61 @@ const MINUTES_BEFORE = [
   { value: 60, label: "An hour before" },
   { value: 120, label: "Two hours before" },
 ];
+
+/**
+ * Which warnings to send before an assignment is due.
+ *
+ * Checkboxes rather than a multi-select: four options out of eight is a
+ * glance, where a multi-select is a drag with a modifier key that half of
+ * people never discover.
+ */
+function ReminderOffsetPicker({ selected, onChange }) {
+  const full = selected.length >= 4;
+
+  function toggle(value) {
+    onChange(
+      selected.includes(value)
+        ? selected.filter((hours) => hours !== value)
+        : // Largest first, matching how the server stores and reads them.
+          [...selected, value].sort((a, b) => b - a)
+    );
+  }
+
+  return (
+    <div className="mt-2">
+      <div className="grid gap-1.5 sm:grid-cols-2 sm:max-w-md">
+        {HOURS_BEFORE.map((option) => {
+          const on = selected.includes(option.value);
+
+          return (
+            <label
+              key={option.value}
+              className={`flex items-center gap-2 text-sm ${
+                !on && full ? "text-slate-400" : "text-slate-700"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={on}
+                disabled={!on && full}
+                onChange={() => toggle(option.value)}
+              />
+              {option.label}
+            </label>
+          );
+        })}
+      </div>
+
+      <p className="mt-2 text-xs text-slate-500">
+        {selected.length === 0
+          ? "Pick at least one, or nothing will be sent."
+          : full
+          ? "That is the maximum of four."
+          : `${selected.length} selected. Each one is a separate email.`}
+      </p>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const { user, loading, updateUser, signOut } = useAuth();
@@ -94,7 +142,10 @@ export default function SettingsPage() {
           email: me.email,
           major: me.major ?? "",
           graduationYear: me.graduationYear ?? "",
-          timeZone: me.timeZone || "America/New_York",
+          timeZone: me.timeZone || DEFAULT_ZONE,
+          school: me.school ?? "",
+          educationLevel: me.educationLevel ?? 0,
+          isDiscoverable: me.isDiscoverable ?? false,
         })
       )
       .catch((err) => setProfileError(err.message))
@@ -119,7 +170,7 @@ export default function SettingsPage() {
         await notificationsApi.savePreferences({
           emailEnabled: notify.emailEnabled,
           assignmentRemindersEnabled: notify.assignmentRemindersEnabled,
-          assignmentReminderHoursBefore: Number(notify.assignmentReminderHoursBefore),
+          assignmentReminderHours: notify.assignmentReminderHours ?? [],
           eventRemindersEnabled: notify.eventRemindersEnabled,
           eventReminderMinutesBefore: Number(notify.eventReminderMinutesBefore),
           dailyDigestEnabled: notify.dailyDigestEnabled,
@@ -167,6 +218,9 @@ export default function SettingsPage() {
         major: profile.major.trim() || null,
         graduationYear: profile.graduationYear === "" ? null : Number(profile.graduationYear),
         timeZone: profile.timeZone,
+        school: profile.school.trim() || null,
+        educationLevel: Number(profile.educationLevel),
+        isDiscoverable: profile.isDiscoverable,
       });
 
       updateUser(updated);
@@ -244,6 +298,11 @@ export default function SettingsPage() {
       <p className="mt-1 text-sm text-slate-600">
         Your account and how PursuitHQ looks.
       </p>
+
+      {/* Renders nothing unless the device and the saved zone disagree. */}
+      <div className="mt-6">
+        <TimeZoneNotice />
+      </div>
 
       {/* Appearance */}
       <section className={`mt-6 ${card}`}>
@@ -325,19 +384,68 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className="sm:col-span-2">
-            <label className={label}>Time zone</label>
+          <PhotoPicker label={label} />
+
+          <div>
+            <label className={label}>School</label>
+            <input
+              type="text"
+              maxLength={200}
+              value={profile.school}
+              onChange={(e) => setProfile({ ...profile, school: e.target.value })}
+              placeholder="Optional"
+              className={field}
+            />
+          </div>
+
+          <div>
+            <label className={label}>Education level</label>
             <select
-              value={profile.timeZone}
-              onChange={(e) => setProfile({ ...profile, timeZone: e.target.value })}
+              value={profile.educationLevel}
+              onChange={(e) =>
+                setProfile({ ...profile, educationLevel: Number(e.target.value) })
+              }
               className={field}
             >
-              {TIME_ZONES.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone.replace("_", " ")}
+              {EDUCATION_LEVELS.map((level) => (
+                <option key={level.value} value={level.value}>
+                  {level.label}
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={profile.isDiscoverable}
+                onChange={(e) =>
+                  setProfile({ ...profile, isDiscoverable: e.target.checked })
+                }
+                className="mt-0.5"
+              />
+              <span>
+                Let other students find me
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  Your name, school and year show up when a classmate searches. Your
+                  email is never shown. Off unless you switch it on.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className={label}>Time zone</label>
+            <TimeZoneSelect
+              value={profile.timeZone}
+              onChange={(zone) => setProfile({ ...profile, timeZone: zone })}
+              className={field}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Due dates and reminder times are read in this zone. It is where your
+              classes are, which is not always where you are.
+            </p>
           </div>
 
           {profileError && (
@@ -407,24 +515,17 @@ export default function SettingsPage() {
               <div>
                 <Toggle
                   label="Assignment due dates"
-                  hint="One reminder per assignment, before it is due."
+                  hint="Pick as many warnings as you want, up to four."
                   checked={notify.assignmentRemindersEnabled}
                   onChange={(v) => setNotify({ ...notify, assignmentRemindersEnabled: v })}
                 />
                 {notify.assignmentRemindersEnabled && (
-                  <select
-                    value={notify.assignmentReminderHoursBefore}
-                    onChange={(e) =>
-                      setNotify({ ...notify, assignmentReminderHoursBefore: e.target.value })
+                  <ReminderOffsetPicker
+                    selected={notify.assignmentReminderHours ?? []}
+                    onChange={(hours) =>
+                      setNotify({ ...notify, assignmentReminderHours: hours })
                     }
-                    className={`${field} sm:max-w-xs`}
-                  >
-                    {HOURS_BEFORE.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 )}
               </div>
 
@@ -521,8 +622,8 @@ export default function SettingsPage() {
             </div>
 
             <p className="mt-4 text-xs text-slate-500">
-              Times are in {notify.timeZone.replace("_", " ")}, taken from your time
-              zone above. Change it there and reminders follow.
+              Times are in {zoneLabel(notify.timeZone)}, taken from your time zone
+              above. Change it there and reminders follow.
             </p>
 
             {notifyMessage && (
@@ -558,6 +659,8 @@ export default function SettingsPage() {
           </form>
         )}
       </section>
+
+      <TwoFactorSection card={card} label={label} field={field} />
 
       {/* Password */}
       <section className={`mt-6 ${card}`}>

@@ -71,7 +71,10 @@ namespace PursuitHQ.API.Controllers
                 LastName = dto.LastName,
                 Major = dto.Major,
                 GraduationYear = dto.GraduationYear,
-                TimeZone = string.IsNullOrWhiteSpace(dto.TimeZone) ? "America/New_York" : dto.TimeZone,
+                // A zone this server cannot resolve is not worth failing a
+                // sign-up over: the default is wrong for some people, an
+                // account they cannot create is wrong for all of them.
+                TimeZone = IsResolvableTimeZone(dto.TimeZone) ? dto.TimeZone! : "America/New_York",
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -140,6 +143,18 @@ namespace PursuitHQ.API.Controllers
             }
 
             await _userManager.ResetAccessFailedCountAsync(user);
+
+            // The password was right. With two-step on, that is only half of
+            // it: what goes back names the user and grants nothing at all
+            // until a code arrives.
+            if (await _userManager.GetTwoFactorEnabledAsync(user))
+            {
+                return Ok(new AuthResponseDto
+                {
+                    RequiresTwoFactor = true,
+                    TwoFactorToken = _tokenService.CreateTwoFactorToken(user)
+                });
+            }
 
             return Ok(BuildAuthResponse(user));
         }
@@ -346,9 +361,24 @@ namespace PursuitHQ.API.Controllers
             user.LastName = dto.LastName;
             user.Major = dto.Major;
             user.GraduationYear = dto.GraduationYear;
+            user.School = string.IsNullOrWhiteSpace(dto.School) ? null : dto.School.Trim();
+
+            // Anything outside the enum is treated as not answered rather than
+            // stored: an int off the wire is not a level just because it fits.
+            user.EducationLevel = Enum.IsDefined(dto.EducationLevel)
+                ? dto.EducationLevel
+                : EducationLevel.NotSet;
+
+            user.IsDiscoverable = dto.IsDiscoverable;
 
             if (!string.IsNullOrWhiteSpace(dto.TimeZone))
             {
+                if (!IsResolvableTimeZone(dto.TimeZone))
+                {
+                    return BadRequest(new ApiErrorDto(
+                        "UnknownTimeZone", "This server does not recognise that time zone."));
+                }
+
                 user.TimeZone = dto.TimeZone;
             }
 
@@ -422,6 +452,223 @@ namespace PursuitHQ.API.Controllers
             return await _userManager.FindByIdAsync(userId);
         }
 
+        // ---------- two-step verification ----------
+
+        /// <summary>
+        /// Finishes a sign-in that stopped for a code.
+        /// </summary>
+        [HttpPost("2fa/verify")]
+        public async Task<ActionResult<AuthResponseDto>> VerifyTwoFactor(TwoFactorVerifyDto dto)
+        {
+            var userId = _tokenService.ReadTwoFactorToken(dto.TwoFactorToken);
+
+            if (userId is null)
+            {
+                return Unauthorized(new ApiErrorDto(
+                    "TwoFactorExpired",
+                    "That sign-in attempt has expired. Enter your password again."));
+            }
+
+            var user = await _userManager.FindByIdAsync(userId);
+
+            if (user is null || !await _userManager.GetTwoFactorEnabledAsync(user))
+            {
+                return Unauthorized(new ApiErrorDto(
+                    "InvalidCredentials", "Sign in again."));
+            }
+
+            // The lockout that guards the password guards this too. Six digits is
+            // a million combinations, which is nothing to a script - without a
+            // limit on attempts the second factor would be decoration.
+            if (await _userManager.IsLockedOutAsync(user))
+            {
+                return StatusCode(423, new ApiErrorDto(
+                    "AccountLocked",
+                    "Too many failed attempts. This account is locked for 15 minutes."));
+            }
+
+            var code = NormaliseCode(dto.Code);
+
+            var accepted = await _userManager.VerifyTwoFactorTokenAsync(
+                user, _userManager.Options.Tokens.AuthenticatorTokenProvider, code);
+
+            if (!accepted)
+            {
+                // A recovery code is the way back in when the phone is gone.
+                // Redeeming one spends it.
+                var redeemed = await _userManager.RedeemTwoFactorRecoveryCodeAsync(user, code);
+                accepted = redeemed.Succeeded;
+            }
+
+            if (!accepted)
+            {
+                await _userManager.AccessFailedAsync(user);
+
+                return Unauthorized(new ApiErrorDto(
+                    "InvalidTwoFactorCode",
+                    "That code is not right. Codes change every 30 seconds - check your app for the current one."));
+            }
+
+            await _userManager.ResetAccessFailedCountAsync(user);
+
+            return Ok(BuildAuthResponse(user));
+        }
+
+        /// <summary>Whether two-step is on, and how many recovery codes are left.</summary>
+        [HttpGet("2fa")]
+        [Authorize]
+        public async Task<ActionResult<TwoFactorStatusDto>> GetTwoFactorStatus()
+        {
+            var user = await GetCurrentUserAsync();
+            if (user is null) return Unauthorized();
+
+            return Ok(new TwoFactorStatusDto
+            {
+                Enabled = await _userManager.GetTwoFactorEnabledAsync(user),
+                RecoveryCodesLeft = await _userManager.CountRecoveryCodesAsync(user)
+            });
+        }
+
+        /// <summary>Hands out a fresh secret for an authenticator app.</summary>
+        [HttpPost("2fa/setup")]
+        [Authorize]
+        public async Task<ActionResult<TwoFactorSetupDto>> SetUpTwoFactor()
+        {
+            var user = await GetCurrentUserAsync();
+            if (user is null) return Unauthorized();
+
+            if (await _userManager.GetTwoFactorEnabledAsync(user))
+            {
+                return BadRequest(new ApiErrorDto(
+                    "AlreadyEnabled",
+                    "Two-step verification is already on. Turn it off first to set up a new device."));
+            }
+
+            // A new secret every time setup is opened, so a QR code photographed
+            // over someone's shoulder last month is already useless.
+            await _userManager.ResetAuthenticatorKeyAsync(user);
+            var key = await _userManager.GetAuthenticatorKeyAsync(user);
+
+            if (string.IsNullOrEmpty(key))
+            {
+                return StatusCode(500, new ApiErrorDto(
+                    "SetupFailed", "Could not create an authenticator key."));
+            }
+
+            return Ok(new TwoFactorSetupDto
+            {
+                SharedKey = GroupInFours(key),
+                AuthenticatorUri = AuthenticatorUri(user.Email ?? user.UserName ?? "account", key)
+            });
+        }
+
+        /// <summary>
+        /// Turns it on, once a code proves the secret arrived intact.
+        ///
+        /// Verifying first matters: enabling on trust would lock out anyone whose
+        /// scan silently failed, and they would not find out until next sign-in.
+        /// </summary>
+        [HttpPost("2fa/enable")]
+        [Authorize]
+        public async Task<ActionResult<RecoveryCodesDto>> EnableTwoFactor(TwoFactorCodeDto dto)
+        {
+            var user = await GetCurrentUserAsync();
+            if (user is null) return Unauthorized();
+
+            var valid = await _userManager.VerifyTwoFactorTokenAsync(
+                user,
+                _userManager.Options.Tokens.AuthenticatorTokenProvider,
+                NormaliseCode(dto.Code));
+
+            if (!valid)
+            {
+                return BadRequest(new ApiErrorDto(
+                    "InvalidTwoFactorCode",
+                    "That code is not right. Check your phone's clock is set automatically, then try the current code."));
+            }
+
+            await _userManager.SetTwoFactorEnabledAsync(user, true);
+
+            // Handed over once. Identity stores only hashes, so they cannot be
+            // shown again - which is the point, and why the page says so.
+            var codes = await _userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, 10);
+
+            return Ok(new RecoveryCodesDto { Codes = codes?.ToList() ?? new List<string>() });
+        }
+
+        /// <summary>Turns it off. Password required.</summary>
+        [HttpPost("2fa/disable")]
+        [Authorize]
+        public async Task<IActionResult> DisableTwoFactor(TwoFactorPasswordDto dto)
+        {
+            var user = await GetCurrentUserAsync();
+            if (user is null) return Unauthorized();
+
+            if (!await _userManager.CheckPasswordAsync(user, dto.Password))
+            {
+                return BadRequest(new ApiErrorDto(
+                    "InvalidCredentials", "That password is not right."));
+            }
+
+            await _userManager.SetTwoFactorEnabledAsync(user, false);
+
+            // Throw the secret away as well. Turning it back on should mean
+            // setting up a device you still have, not reviving a lost one.
+            await _userManager.ResetAuthenticatorKeyAsync(user);
+
+            return NoContent();
+        }
+
+        /// <summary>A new set of recovery codes, retiring the old ones.</summary>
+        [HttpPost("2fa/recovery-codes")]
+        [Authorize]
+        public async Task<ActionResult<RecoveryCodesDto>> RegenerateRecoveryCodes(
+            TwoFactorPasswordDto dto)
+        {
+            var user = await GetCurrentUserAsync();
+            if (user is null) return Unauthorized();
+
+            if (!await _userManager.CheckPasswordAsync(user, dto.Password))
+            {
+                return BadRequest(new ApiErrorDto(
+                    "InvalidCredentials", "That password is not right."));
+            }
+
+            if (!await _userManager.GetTwoFactorEnabledAsync(user))
+            {
+                return BadRequest(new ApiErrorDto(
+                    "NotEnabled", "Two-step verification is not on for this account."));
+            }
+
+            var codes = await _userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, 10);
+
+            return Ok(new RecoveryCodesDto { Codes = codes?.ToList() ?? new List<string>() });
+        }
+
+        /// <summary>Codes get pasted and typed with spaces and dashes in them.</summary>
+        private static string NormaliseCode(string code) =>
+            code.Replace(" ", string.Empty).Replace("-", string.Empty).Trim();
+
+        /// <summary>"ABCD EFGH IJKL" - far easier to type by hand without slipping.</summary>
+        private static string GroupInFours(string key) =>
+            string.Join(" ", Enumerable
+                .Range(0, (key.Length + 3) / 4)
+                .Select(i => key.Substring(i * 4, Math.Min(4, key.Length - i * 4))));
+
+        /// <summary>
+        /// The otpauth:// URI every authenticator app understands.
+        ///
+        /// Both halves of the label are escaped: an email containing a colon
+        /// would otherwise split it and the app would show the wrong account.
+        /// </summary>
+        private static string AuthenticatorUri(string email, string key)
+        {
+            var issuer = Uri.EscapeDataString("PursuitHQ");
+            var label = Uri.EscapeDataString(email);
+
+            return $"otpauth://totp/{issuer}:{label}?secret={key}&issuer={issuer}&digits=6&period=30";
+        }
+
         private AuthResponseDto BuildAuthResponse(ApplicationUser user)
         {
             var (token, expiresAt) = _tokenService.CreateToken(user);
@@ -434,6 +681,62 @@ namespace PursuitHQ.API.Controllers
             };
         }
 
+        /// <summary>
+        /// Changes only the time zone.
+        ///
+        /// Separate from UpdateMe because that one writes the whole profile from
+        /// whatever it is handed. A caller that knows only the zone - the prompt
+        /// that appears when the device disagrees - would blank the student's
+        /// name, major and graduation year on its way past.
+        /// </summary>
+        [HttpPut("me/timezone")]
+        [Authorize]
+        public async Task<ActionResult<UserProfileDto>> UpdateMyTimeZone(UpdateTimeZoneDto dto)
+        {
+            var user = await GetCurrentUserAsync();
+            if (user is null) return Unauthorized();
+
+            if (!IsResolvableTimeZone(dto.TimeZone))
+            {
+                return BadRequest(new ApiErrorDto(
+                    "UnknownTimeZone", "This server does not recognise that time zone."));
+            }
+
+            user.TimeZone = dto.TimeZone;
+
+            var result = await _userManager.UpdateAsync(user);
+            if (!result.Succeeded)
+            {
+                return BadRequest(new ApiErrorDto(
+                    "UpdateFailed", "Could not update the time zone."));
+            }
+
+            return Ok(ToProfileDto(user));
+        }
+
+        /// <summary>
+        /// Whether this machine can actually resolve the id.
+        ///
+        /// The picker offers IANA names, which .NET resolves on Windows and Linux
+        /// alike so long as ICU is present - which it is unless the app is
+        /// published in globalization-invariant mode. That is exactly the case
+        /// worth catching here rather than at 3am in a reminder job.
+        /// </summary>
+        private static bool IsResolvableTimeZone(string? id)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return false;
+
+            try
+            {
+                TimeZoneInfo.FindSystemTimeZoneById(id);
+                return true;
+            }
+            catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+            {
+                return false;
+            }
+        }
+
         private static UserProfileDto ToProfileDto(ApplicationUser user) => new()
         {
             Id = user.Id,
@@ -443,6 +746,10 @@ namespace PursuitHQ.API.Controllers
             Major = user.Major,
             GraduationYear = user.GraduationYear,
             TimeZone = user.TimeZone,
+            School = user.School,
+            EducationLevel = user.EducationLevel,
+            IsDiscoverable = user.IsDiscoverable,
+            HasPhoto = !string.IsNullOrEmpty(user.PhotoPath),
             CreatedAt = user.CreatedAt
         };
     }

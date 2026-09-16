@@ -15,7 +15,9 @@ namespace PursuitHQ.API.DTOs.Notifications
         public bool EmailEnabled { get; set; }
 
         public bool AssignmentRemindersEnabled { get; set; }
-        public int AssignmentReminderHoursBefore { get; set; }
+
+        /// <summary>Hours before the due date, largest first.</summary>
+        public List<int> AssignmentReminderHours { get; set; } = new();
 
         public bool EventRemindersEnabled { get; set; }
         public int EventReminderMinutesBefore { get; set; }
@@ -52,8 +54,12 @@ namespace PursuitHQ.API.DTOs.Notifications
 
         public bool AssignmentRemindersEnabled { get; set; }
 
-        [Range(1, 336, ErrorMessage = "Choose between 1 hour and 2 weeks before.")]
-        public int AssignmentReminderHoursBefore { get; set; } = 24;
+        /// <summary>
+        /// Not range-attributed: the list is cleaned by ReminderOffsets rather
+        /// than rejected. A client sending a stray value should get the settings
+        /// it can have, not a validation error naming an index in an array.
+        /// </summary>
+        public List<int> AssignmentReminderHours { get; set; } = new();
 
         public bool EventRemindersEnabled { get; set; }
 

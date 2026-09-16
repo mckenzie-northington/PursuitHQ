@@ -68,7 +68,15 @@ namespace PursuitHQ.API.Controllers
             preference.EmailEnabled = dto.EmailEnabled;
 
             preference.AssignmentRemindersEnabled = dto.AssignmentRemindersEnabled;
-            preference.AssignmentReminderHoursBefore = dto.AssignmentReminderHoursBefore;
+            // Cleaned rather than trusted: bounds, duplicates, the cap and the
+            // ordering the scheduler relies on. An empty list after cleaning
+            // falls back to the default, because "reminders on, none scheduled"
+            // is a setting nobody means to choose.
+            var offsets = ReminderOffsets.Clean(dto.AssignmentReminderHours);
+
+            preference.AssignmentReminderHours = offsets.Count > 0
+                ? ReminderOffsets.ToStorage(offsets)
+                : ReminderOffsets.Default;
 
             preference.EventRemindersEnabled = dto.EventRemindersEnabled;
             preference.EventReminderMinutesBefore = dto.EventReminderMinutesBefore;
@@ -205,7 +213,7 @@ namespace PursuitHQ.API.Controllers
             {
                 EmailEnabled = p.EmailEnabled,
                 AssignmentRemindersEnabled = p.AssignmentRemindersEnabled,
-                AssignmentReminderHoursBefore = p.AssignmentReminderHoursBefore,
+                AssignmentReminderHours = ReminderOffsets.Parse(p.AssignmentReminderHours),
                 EventRemindersEnabled = p.EventRemindersEnabled,
                 EventReminderMinutesBefore = p.EventReminderMinutesBefore,
                 DailyDigestEnabled = p.DailyDigestEnabled,

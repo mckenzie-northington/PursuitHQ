@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { resumes as resumesApi, savedJobs as savedJobsApi } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import FormatBar from "@/components/resume/FormatBar";
+import { styleVars, normaliseStyle } from "@/lib/resumeFonts";
 
 const SEVERITY = {
   high: { label: "Important", chip: "bg-red-50 text-red-700 border-red-200" },
@@ -70,6 +72,10 @@ function normalise(raw) {
   // An empty layout means this resume predates arranging, not that every
   // section was removed - so it gets the default order, not a blank page.
   c.layout = layout.length > 0 ? layout : known;
+
+  // Missing on anything written before the format controls existed, and
+  // checked rather than trusted even when present - see normaliseStyle.
+  c.style = normaliseStyle(c.style);
 
   return c;
 }
@@ -390,6 +396,17 @@ export default function ResumeEditorPage() {
           <p className="print-hide mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
             Preview
           </p>
+
+          <FormatBar
+            style={content.style}
+            onChange={(patch) =>
+              edit((c) => {
+                c.style = { ...c.style, ...patch };
+                return c;
+              })
+            }
+          />
+
           <Sheet content={content} />
         </div>
       </div>
@@ -1090,6 +1107,29 @@ function Bullets({ label, items, onChange }) {
  * Sections come out in the order the editor put them in, and a section that is
  * not in the layout is not on the page at all.
  */
+/**
+ * The sheet's own type scale.
+ *
+ * Tailwind's text sizes are fixed rem values, so with them left alone the size
+ * control would move the body text and leave the name, headings and dates
+ * behind. Restating them in em, scoped to the sheet, makes the whole document
+ * scale from one number. Unlayered on purpose: plain CSS outranks anything in
+ * a cascade layer, which is where Tailwind's utilities live.
+ */
+const SHEET_CSS = `
+.resume-sheet {
+  font-family: var(--resume-font);
+  font-size: var(--resume-size);
+  line-height: var(--resume-leading);
+}
+.resume-sheet .text-2xl { font-size: 1.72em; line-height: 1.2; }
+.resume-sheet .text-lg  { font-size: 1.15em; line-height: 1.25; }
+.resume-sheet .text-base { font-size: 1em; line-height: var(--resume-leading); }
+.resume-sheet .text-sm  { font-size: 0.93em; line-height: var(--resume-leading); }
+.resume-sheet .text-xs  { font-size: 0.82em; line-height: var(--resume-leading); }
+.resume-sheet .leading-snug { line-height: var(--resume-leading); }
+`;
+
 function Sheet({ content }) {
   const { contact } = content;
 
@@ -1097,7 +1137,12 @@ function Sheet({ content }) {
   const details = [contact?.email, contact?.phone, contact?.location].filter(Boolean);
 
   return (
-    <div className="resume-sheet rounded-xl border border-slate-200 bg-white p-8 text-slate-900 shadow-sm">
+    <div
+      className="resume-sheet rounded-xl border border-slate-200 bg-white p-8 text-slate-900 shadow-sm"
+      style={styleVars(content.style)}
+    >
+      <style>{SHEET_CSS}</style>
+
       <header className="text-center">
         <h1 className="text-2xl font-bold tracking-tight">
           {contact?.name || "Your name"}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { assignments as assignmentsApi, courses as coursesApi } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import { wallClockNow } from "@/lib/timezones";
 import AssignmentCheckbox from "@/components/calendar/AssignmentCheckbox";
 
 // Matches the AssignmentStatus enum in the API.
@@ -37,13 +38,15 @@ function toInputValue(dueDate) {
  * Every minute rather than every second - a deadline is never so precise that
  * the second matters, and a re-render a second is a waste of a battery.
  */
-function useNow(intervalMs = 60_000) {
-  const [now, setNow] = useState(() => new Date());
+function useNow(timeZone, intervalMs = 60_000) {
+  const [now, setNow] = useState(() => wallClockNow(timeZone));
 
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), intervalMs);
+    setNow(wallClockNow(timeZone));
+
+    const id = setInterval(() => setNow(wallClockNow(timeZone)), intervalMs);
     return () => clearInterval(id);
-  }, [intervalMs]);
+  }, [timeZone, intervalMs]);
 
   return now;
 }
@@ -81,7 +84,9 @@ export default function AssignmentsPage() {
   /** The assignment being edited, or null when adding a new one. */
   const [editingId, setEditingId] = useState(null);
 
-  const now = useNow();
+  // Due dates come back without an offset, so they read as wall clock. This
+  // has to be wall clock in the same zone or the comparison is meaningless.
+  const now = useNow(user?.timeZone);
 
   async function refresh() {
     try {

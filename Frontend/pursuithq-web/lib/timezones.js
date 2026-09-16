@@ -1,44 +1,36 @@
 /**
  * The time zone list behind every zone picker in the app.
  *
- * Labels are built at runtime rather than hardcoded, because a hardcoded label
- * is wrong for half the year: "Eastern Standard Time, UTC-05:00" becomes
- * Eastern Daylight Time at UTC-04:00 every March, and a list written in winter
- * quietly lies all summer. Asking Intl each time means daylight saving is
- * handled by the browser's own tz database instead of by us remembering.
+ * US zones only. PursuitHQ is built for students at a US university, and four
+ * hundred options is four hundred chances to scroll past the right one.
+ *
+ * Labels are built at runtime rather than written out, because a written label
+ * is wrong for half the year: Eastern is UTC-05:00 in January and UTC-04:00 in
+ * July, and a list typed up in winter quietly lies all summer. Asking Intl each
+ * time hands daylight saving to the browser's own tz database instead of to us
+ * remembering to update a file twice a year.
  */
 
 /**
- * For browsers without Intl.supportedValuesOf (anything before ~2022).
- * Not meant to be complete - just enough that the picker is never empty.
+ * East to west, the way US zones are normally listed.
+ *
+ * `place` is set only where the city behind the id would be misleading:
+ * "Phoenix" is really the whole of Arizona, and nobody thinks of their zone as
+ * "Honolulu". Where it is absent the city is used, which reads fine for
+ * New York, Chicago, Denver and Los Angeles.
  */
-const FALLBACK_ZONES = [
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Phoenix",
-  "America/Los_Angeles",
-  "America/Anchorage",
-  "Pacific/Honolulu",
-  "Europe/London",
-  "UTC",
+export const US_ZONES = [
+  { id: "America/New_York" },
+  { id: "America/Chicago" },
+  { id: "America/Denver" },
+  { id: "America/Phoenix", place: "Arizona" },
+  { id: "America/Los_Angeles" },
+  { id: "America/Anchorage", place: "Alaska" },
+  { id: "Pacific/Honolulu", place: "Hawaii" },
+  { id: "America/Puerto_Rico", place: "Puerto Rico" },
 ];
 
-/** Anything we cannot read a zone from falls back to this. */
 export const DEFAULT_ZONE = "America/New_York";
-
-const REGION_NAMES = {
-  Africa: "Africa",
-  America: "Americas",
-  Antarctica: "Antarctica",
-  Arctic: "Arctic",
-  Asia: "Asia",
-  Atlantic: "Atlantic",
-  Australia: "Australia",
-  Europe: "Europe",
-  Indian: "Indian Ocean",
-  Pacific: "Pacific",
-};
 
 /** What the device thinks, or the default if it will not say. */
 export function browserZone() {
@@ -115,7 +107,8 @@ function formatOffset(minutes) {
  *
  * The generic name is the one people recognise and the one that does not go
  * stale twice a year. Older browsers do not support longGeneric, so the
- * seasonal name is the fallback, and the city alone is the last resort.
+ * seasonal name is the fallback. Arizona and Hawaii come back as "Standard
+ * Time" either way, which is correct - neither observes daylight saving.
  */
 function zoneName(zoneId, at) {
   for (const style of ["longGeneric", "long"]) {
@@ -147,69 +140,32 @@ function cityOf(zoneId) {
  * The label shown in the picker, e.g.
  * "(UTC-05:00) Central Time - Chicago".
  */
-export function zoneLabel(zoneId, at = new Date()) {
+export function zoneLabel(zoneId, at = new Date(), place) {
   if (!isKnownZone(zoneId)) return zoneId;
 
   const offset = `(UTC${formatOffset(offsetMinutes(zoneId, at))})`;
-  const city = cityOf(zoneId);
+  const where = place ?? cityOf(zoneId);
   const name = zoneName(zoneId, at);
 
-  if (!name || name === city) return `${offset} ${city}`;
+  // "Alaska Time - Alaska" and "Hawaii-Aleutian Standard Time - Hawaii" say the
+  // same thing twice, so the place is dropped once the name already carries it.
+  if (!name || name.includes(where)) return `${offset} ${name || where}`;
 
-  // UTC and GMT have no city worth naming.
-  if (zoneId === "UTC" || zoneId === "GMT") return `${offset} ${name}`;
-
-  return `${offset} ${name} — ${city}`;
+  return `${offset} ${name} — ${where}`;
 }
 
 /**
- * Every zone the browser knows, grouped by region and sorted west to east.
+ * The picker's options, in list order.
  *
- * Built once and kept: this is a few hundred entries and each one costs two
- * Intl formatters to label, which is fine once and wasteful on every render.
- * Offsets only move at a daylight saving boundary, and a page that has been
- * open across one is already showing a stale clock.
+ * Not cached: eight zones cost almost nothing to label, and computing them on
+ * demand means a page left open across a daylight saving change shows the new
+ * offsets rather than yesterday's.
  */
-let groupsCache = null;
-
-export function zoneGroups() {
-  if (groupsCache) return groupsCache;
-
-  const at = new Date();
-
-  let ids;
-  try {
-    ids = Intl.supportedValuesOf("timeZone");
-  } catch {
-    ids = FALLBACK_ZONES;
-  }
-
-  if (!ids?.length) ids = FALLBACK_ZONES;
-
-  const byRegion = new Map();
-
-  for (const id of ids) {
-    if (!isKnownZone(id)) continue;
-
-    const region = REGION_NAMES[id.split("/")[0]] ?? "Other";
-
-    if (!byRegion.has(region)) byRegion.set(region, []);
-
-    byRegion.get(region).push({
-      id,
-      label: zoneLabel(id, at),
-      offset: offsetMinutes(id, at),
-    });
-  }
-
-  groupsCache = [...byRegion.entries()]
-    .map(([region, zones]) => ({
-      region,
-      zones: zones.sort((a, b) => a.offset - b.offset || a.label.localeCompare(b.label)),
-    }))
-    .sort((a, b) => a.region.localeCompare(b.region));
-
-  return groupsCache;
+export function zoneOptions(at = new Date()) {
+  return US_ZONES.filter((zone) => isKnownZone(zone.id)).map((zone) => ({
+    id: zone.id,
+    label: zoneLabel(zone.id, at, zone.place),
+  }));
 }
 
 /**

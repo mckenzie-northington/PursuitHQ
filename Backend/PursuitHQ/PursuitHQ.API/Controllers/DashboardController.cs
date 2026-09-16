@@ -19,19 +19,25 @@ namespace PursuitHQ.API.Controllers
 
         private readonly ApplicationDbContext _db;
         private readonly ICalendarFeedService _feed;
+        private readonly IUserClock _clock;
 
-        public DashboardController(ApplicationDbContext db, ICalendarFeedService feed)
+        public DashboardController(
+            ApplicationDbContext db, ICalendarFeedService feed, IUserClock clock)
         {
             _db = db;
             _feed = feed;
+            _clock = clock;
         }
 
         [HttpGet]
         public async Task<ActionResult<DashboardDto>> Get(CancellationToken ct)
         {
-            // Wall-clock, to match how due dates are stored. See the note in
-            // DatabaseDesign.md section 4a.
-            var now = DateTime.Now;
+            // Wall-clock, to match how due dates are stored (DatabaseDesign.md
+            // section 4a), in the student's own zone rather than this machine's.
+            // "Today" and the lookahead window both hang off this, so getting it
+            // from the server clock would shift the whole dashboard, not just the
+            // overdue flags.
+            var now = await _clock.LocalNowAsync(CurrentUserId, ct);
             var today = DateOnly.FromDateTime(now);
             var horizon = now.Date.AddDays(LookaheadDays + 1);
 

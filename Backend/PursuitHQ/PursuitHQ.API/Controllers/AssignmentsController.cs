@@ -13,11 +13,14 @@ namespace PursuitHQ.API.Controllers
     {
         private readonly ApplicationDbContext _db;
         private readonly ICreationNotifier _notifier;
+        private readonly IUserClock _clock;
 
-        public AssignmentsController(ApplicationDbContext db, ICreationNotifier notifier)
+        public AssignmentsController(
+            ApplicationDbContext db, ICreationNotifier notifier, IUserClock clock)
         {
             _db = db;
             _notifier = notifier;
+            _clock = clock;
         }
 
         /// <summary>
@@ -41,12 +44,9 @@ namespace PursuitHQ.API.Controllers
             if (dueBefore.HasValue) query = query.Where(a => a.DueDate <= dueBefore.Value);
             if (dueAfter.HasValue) query = query.Where(a => a.DueDate >= dueAfter.Value);
 
-            // Due dates are wall-clock, so "overdue" is a wall-clock question.
-            // DateTime.Now is the server's clock, which is the student's clock
-            // while the app runs on their laptop. Once this is deployed the
-            // server will be on UTC and this needs ApplicationUser.TimeZone
-            // instead - noted in docs/Deployment.md.
-            var now = DateTime.Now;
+            // Due dates are wall-clock, so "overdue" is a wall-clock question,
+            // and the wall clock that matters is the student's. See IUserClock.
+            var now = await _clock.LocalNowAsync(CurrentUserId);
 
             var assignments = await query
                 .OrderBy(a => a.DueDate)
@@ -77,7 +77,7 @@ namespace PursuitHQ.API.Controllers
 
             if (assignment is null) return NotFound(NotFoundError());
 
-            return Ok(ToDto(assignment));
+            return Ok(ToDto(assignment, await _clock.LocalNowAsync(CurrentUserId)));
         }
 
         [HttpPost]
@@ -112,7 +112,10 @@ namespace PursuitHQ.API.Controllers
                 CurrentUserId, "assignment", assignment.Title,
                 $"{course.Name} - due {assignment.DueDate:dddd, d MMMM} at {assignment.DueDate:h:mm tt}");
 
-            return CreatedAtAction(nameof(GetAssignment), new { id = assignment.Id }, ToDto(assignment));
+            return CreatedAtAction(
+                nameof(GetAssignment),
+                new { id = assignment.Id },
+                ToDto(assignment, await _clock.LocalNowAsync(CurrentUserId)));
         }
 
         [HttpPut("{id:int}")]
@@ -132,7 +135,7 @@ namespace PursuitHQ.API.Controllers
 
             await _db.SaveChangesAsync();
 
-            return Ok(ToDto(assignment));
+            return Ok(ToDto(assignment, await _clock.LocalNowAsync(CurrentUserId)));
         }
 
         /// <summary>
@@ -151,7 +154,7 @@ namespace PursuitHQ.API.Controllers
             assignment.Status = dto.Status;
             await _db.SaveChangesAsync();
 
-            return Ok(ToDto(assignment));
+            return Ok(ToDto(assignment, await _clock.LocalNowAsync(CurrentUserId)));
         }
 
         [HttpDelete("{id:int}")]
@@ -174,7 +177,12 @@ namespace PursuitHQ.API.Controllers
         private static ApiErrorDto NotFoundError() =>
             new("AssignmentNotFound", "That assignment does not exist, or it does not belong to you.");
 
-        private static AssignmentDto ToDto(Assignment a) => new()
+        /// <summary>
+        /// Takes "now" rather than reading a clock, so that every caller has to
+        /// decide whose clock it is. That decision being invisible is what made
+        /// this wrong in the first place.
+        /// </summary>
+        private static AssignmentDto ToDto(Assignment a, DateTime now) => new()
         {
             Id = a.Id,
             CourseId = a.CourseId,
@@ -185,7 +193,7 @@ namespace PursuitHQ.API.Controllers
             Status = a.Status,
             Grade = a.Grade,
             CreatedAt = a.CreatedAt,
-            IsOverdue = a.DueDate < DateTime.Now && a.Status != AssignmentStatus.Completed
+            IsOverdue = a.DueDate < now && a.Status != AssignmentStatus.Completed
         };
     }
 }

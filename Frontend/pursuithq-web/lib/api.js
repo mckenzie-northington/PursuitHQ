@@ -5,6 +5,8 @@
 // handling and error handling live in one file rather than being repeated.
 // ---------------------------------------------------------------------------
 
+import { browserZone } from "@/lib/timezones";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5051";
 
 const TOKEN_KEY = "pursuithq_token";
@@ -211,8 +213,91 @@ export const api = {
 
 // --- feature helpers -------------------------------------------------------
 
+export const students = {
+  /** Only lists people who have opted in; under two characters returns nothing. */
+  search: (q) => api.get(`/api/students/search?q=${encodeURIComponent(q)}`),
+
+  /** Exact address. Finds people who are not listed, and is rate limited. */
+  lookup: (email) => api.get(`/api/students/lookup?email=${encodeURIComponent(email)}`),
+
+  get: (id) => api.get(`/api/students/${encodeURIComponent(id)}`),
+
+  /** Behind the bearer token, so it has to come back as a blob, not an <img src>. */
+  photo: (id) => fetchBlob(`/api/students/${encodeURIComponent(id)}/photo`),
+};
+
+export const profile = {
+  me: () => api.get("/api/auth/me"),
+
+  uploadPhoto: (file) => {
+    const form = new FormData();
+    form.append("file", file);
+    return upload("/api/profile/photo", form);
+  },
+
+  removePhoto: () => api.del("/api/profile/photo"),
+};
+
+export const connections = {
+  list: () => api.get("/api/connections"),
+  requests: () => api.get("/api/connections/requests"),
+  sent: () => api.get("/api/connections/sent"),
+  request: (addresseeId, note) => api.post("/api/connections", { addresseeId, note }),
+  accept: (id) => api.post(`/api/connections/${id}/accept`, {}),
+  decline: (id) => api.post(`/api/connections/${id}/decline`, {}),
+
+  /** Cancels a pending request, or removes an accepted connection. */
+  remove: (id) => api.del(`/api/connections/${id}`),
+
+  block: (userId) => api.post("/api/connections/block", { userId }),
+  unblock: (userId) => api.post("/api/connections/unblock", { userId }),
+};
+
+export const conversations = {
+  list: () => api.get("/api/conversations"),
+  unread: () => api.get("/api/conversations/unread"),
+  startDirect: (userId) => api.post("/api/conversations/direct", { userId }),
+  createGroup: (name, memberIds) =>
+    api.post("/api/conversations/group", { name, memberIds }),
+
+  messages: (id, before) =>
+    api.get(`/api/conversations/${id}/messages${before ? `?before=${before}` : ""}`),
+
+  send: (id, body) => api.post(`/api/conversations/${id}/messages`, { body }),
+  deleteMessage: (id, messageId) =>
+    api.del(`/api/conversations/${id}/messages/${messageId}`),
+
+  markRead: (id) => api.post(`/api/conversations/${id}/read`, {}),
+  addMembers: (id, memberIds) => api.post(`/api/conversations/${id}/members`, { memberIds }),
+  rename: (id, name) => api.put(`/api/conversations/${id}/name`, { name }),
+
+  /** Leaving is removing yourself, which the server treats as the same thing. */
+  leave: (id) => api.del(`/api/conversations/${id}/members/me`),
+};
+
 export const auth = {
-  register: (data) => api.post("/api/auth/register", data),
+  /**
+   * The browser knows the zone and the server cannot guess it, so it rides
+   * along with every sign-up. Spread second so an explicit choice wins.
+   */
+  register: (data) =>
+    api.post("/api/auth/register", { timeZone: browserZone(), ...data }),
+
+  /** Only the zone. updateProfile would blank every field it was not given. */
+  updateTimeZone: (timeZone) => api.put("/api/auth/me/timezone", { timeZone }),
+
+  twoFactor: {
+    status: () => api.get("/api/auth/2fa"),
+    setUp: () => api.post("/api/auth/2fa/setup", {}),
+    enable: (code) => api.post("/api/auth/2fa/enable", { code }),
+    disable: (password) => api.post("/api/auth/2fa/disable", { password }),
+    newRecoveryCodes: (password) =>
+      api.post("/api/auth/2fa/recovery-codes", { password }),
+
+    /** Second half of signing in. The only thing the pending token is good for. */
+    verify: (twoFactorToken, code) =>
+      api.post("/api/auth/2fa/verify", { twoFactorToken, code }),
+  },
   login: (data) => api.post("/api/auth/login", data),
   me: () => api.get("/api/auth/me"),
   updateProfile: (data) => api.put("/api/auth/me", data),

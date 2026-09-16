@@ -50,6 +50,12 @@ namespace PursuitHQ.API.Data
 
         public DbSet<SavedJob> SavedJobs => Set<SavedJob>();
 
+        // --- Students and messaging ---------------------------------
+        public DbSet<Connection> Connections => Set<Connection>();
+        public DbSet<Conversation> Conversations => Set<Conversation>();
+        public DbSet<ConversationMember> ConversationMembers => Set<ConversationMember>();
+        public DbSet<Message> Messages => Set<Message>();
+
         /// <summary>
         /// Every DateTime column is PostgreSQL "timestamp with time zone", and
         /// Npgsql refuses to write a DateTime whose Kind is Unspecified to one.
@@ -105,6 +111,68 @@ namespace PursuitHQ.API.Data
         {
             // Required: sets up all of Identity's own tables.
             base.OnModelCreating(builder);
+
+            // --- Connections ------------------------------------------------
+            // One row per pair, whichever way round it was created. Every
+            // lookup in ConnectionService assumes that, and a second row for
+            // the same two people would make "are they connected" ambiguous.
+            builder.Entity<Connection>()
+                .HasIndex(c => new { c.RequesterId, c.AddresseeId })
+                .IsUnique();
+
+            // Drives the incoming-requests list and the unread dot.
+            builder.Entity<Connection>()
+                .HasIndex(c => new { c.AddresseeId, c.Status });
+
+            builder.Entity<Connection>()
+                .HasOne(c => c.Requester).WithMany()
+                .HasForeignKey(c => c.RequesterId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<Connection>()
+                .HasOne(c => c.Addressee).WithMany()
+                .HasForeignKey(c => c.AddresseeId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // --- Conversations ----------------------------------------------
+            // Deleting a conversation takes its membership and its messages:
+            // neither means anything on its own.
+            builder.Entity<ConversationMember>()
+                .HasOne(m => m.Conversation).WithMany(c => c.Members)
+                .HasForeignKey(m => m.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<Message>()
+                .HasOne(m => m.Conversation).WithMany()
+                .HasForeignKey(m => m.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One membership row per person per conversation. Rejoining a group
+            // clears LeftAt rather than adding a second row - see AddMembers.
+            builder.Entity<ConversationMember>()
+                .HasIndex(m => new { m.ConversationId, m.UserId })
+                .IsUnique();
+
+            // The conversation list, run on every poll.
+            builder.Entity<ConversationMember>()
+                .HasIndex(m => new { m.UserId, m.LeftAt });
+
+            builder.Entity<ConversationMember>()
+                .HasOne(m => m.User).WithMany()
+                .HasForeignKey(m => m.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict, not Cascade, and deliberately so: deleting an account
+            // must not silently erase that person's half of everyone else's
+            // group conversations, leaving the rest unreadable.
+            builder.Entity<Message>()
+                .HasOne(m => m.Sender).WithMany()
+                .HasForeignKey(m => m.SenderId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Messages are paged newest-first by id within a conversation.
+            builder.Entity<Message>()
+                .HasIndex(m => new { m.ConversationId, m.Id });
 
             // --- Study chat -------------------------------------------------
             // Deleting a conversation takes its messages with it: a message

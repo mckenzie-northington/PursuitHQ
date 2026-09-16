@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace PursuitHQ.API.Models
 {
     /// <summary>
@@ -15,7 +17,18 @@ namespace PursuitHQ.API.Models
         public bool EmailEnabled { get; set; } = true;
 
         public bool AssignmentRemindersEnabled { get; set; } = true;
-        public int AssignmentReminderHoursBefore { get; set; } = 24;
+
+        /// <summary>
+        /// How many hours before a due date each reminder goes out, comma
+        /// separated and largest first: "168,24" is a week ahead, and again the
+        /// day before.
+        ///
+        /// Read it with ReminderOffsets.Parse rather than splitting it here -
+        /// the bounds, the cap and the ordering all live in one place because
+        /// the scheduler depends on them.
+        /// </summary>
+        [MaxLength(60)]
+        public string AssignmentReminderHours { get; set; } = ReminderOffsets.Default;
 
         public bool EventRemindersEnabled { get; set; } = true;
         public int EventReminderMinutesBefore { get; set; } = 30;

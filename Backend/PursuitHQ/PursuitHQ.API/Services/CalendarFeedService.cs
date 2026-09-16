@@ -42,11 +42,16 @@ namespace PursuitHQ.API.Services
     {
         private readonly ApplicationDbContext _db;
         private readonly ILogger<CalendarFeedService> _logger;
+        private readonly IUserClock _clock;
 
-        public CalendarFeedService(ApplicationDbContext db, ILogger<CalendarFeedService> logger)
+        public CalendarFeedService(
+            ApplicationDbContext db,
+            ILogger<CalendarFeedService> logger,
+            IUserClock clock)
         {
             _db = db;
             _logger = logger;
+            _clock = clock;
         }
 
         public async Task<CalendarFeedResult> GetAsync(
@@ -165,7 +170,7 @@ namespace PursuitHQ.API.Services
                 .Select(r => new { r.Id, r.Title, r.Notes, r.Date, r.IsCompleted })
                 .ToListAsync();
 
-            var today = DateOnly.FromDateTime(DateTime.Now);
+            var today = DateOnly.FromDateTime(await _clock.LocalNowAsync(userId));
 
             return reminders.Select(r => new CalendarItemDto
             {
@@ -186,9 +191,9 @@ namespace PursuitHQ.API.Services
         {
             var start = from.ToDateTime(TimeOnly.MinValue);
             var end = to.ToDateTime(TimeOnly.MaxValue);
-            // Wall-clock, to match how due dates are stored. See the note in
-            // AssignmentsController.
-            var now = DateTime.Now;
+            // Wall-clock, to match how due dates are stored, and the student's
+            // wall clock rather than this machine's. See IUserClock.
+            var now = await _clock.LocalNowAsync(userId);
 
             var assignments = await _db.Assignments
                 .Where(a => a.Course!.UserId == userId

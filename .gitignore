@@ -13,5 +13,12 @@ out/
 ## OS
 .DS_Store
 Thumbs.db
+
 ## Uploaded study materials (local file storage)
 Backend/PursuitHQ/PursuitHQ.API/storage/
+
+## Working copies of files delivered through chat, and the patch scripts that
+## applied them. Kept on disk because they are handy to re-read, ignored
+## because a tracked second copy of a source file is a trap: it shadows the
+## real one in search results and has already caused one build failure.
+Claude outputs/

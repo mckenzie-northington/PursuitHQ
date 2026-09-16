@@ -118,6 +118,9 @@ builder.Services.AddScoped<IStudyChatService, StudyChatService>();
 
 // The merged calendar feed. Scoped, because it holds a DbContext - and because
 // the calendar page and the dashboard must not answer differently.
+builder.Services.AddScoped<IUserClock, UserClock>();
+builder.Services.AddScoped<IConnectionService, ConnectionService>();
+builder.Services.AddScoped<IProfilePhotoService, ProfilePhotoService>();
 builder.Services.AddScoped<ICalendarFeedService, CalendarFeedService>();
 builder.Services.AddScoped<IResumeAiService, ResumeAiService>();
 

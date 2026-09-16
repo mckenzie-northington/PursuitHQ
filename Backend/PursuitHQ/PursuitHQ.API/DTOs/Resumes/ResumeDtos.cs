@@ -72,6 +72,34 @@ namespace PursuitHQ.API.DTOs.Resumes
         /// case rather than showing an empty page.
         /// </summary>
         public List<string> Layout { get; set; } = new();
+
+        /// <summary>
+        /// How the sheet is set: typeface, text size, line spacing.
+        ///
+        /// Null on every resume saved before this existed, which is why the
+        /// editor fills it in rather than the database doing it. Kept inside the
+        /// content JSON rather than given columns of its own because it is only
+        /// ever read and written whole, alongside the content it formats.
+        /// </summary>
+        public ResumeStyleDto? Style { get; set; }
+    }
+
+    /// <summary>
+    /// Presentation only. Nothing here reaches the AI: the checker is sent the
+    /// words, and what font they are in is none of its business.
+    /// </summary>
+    public class ResumeStyleDto
+    {
+        /// <summary>A key from RESUME_FONTS in the website, not a CSS stack.</summary>
+        [MaxLength(40)]
+        public string? Font { get; set; }
+
+        /// <summary>Points. Range matches what the editor will accept.</summary>
+        [Range(8, 14)]
+        public double? Size { get; set; }
+
+        [Range(1, 2)]
+        public double? Leading { get; set; }
     }
 
     /// <summary>

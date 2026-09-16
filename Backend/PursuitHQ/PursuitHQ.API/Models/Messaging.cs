@@ -148,6 +148,45 @@ namespace PursuitHQ.API.Models
         public bool IsMuted { get; set; }
 
         /// <summary>
+        /// Keeps this conversation at the top of the list.
+        ///
+        /// Per member, like muting: which conversations matter is one
+        /// person's judgement, and pinning a group for everybody in it would
+        /// be somebody else deciding what you look at first.
+        /// </summary>
+        public bool IsPinned { get; set; }
+
+        /// <summary>
+        /// When this chat was pinned. Null when it is not pinned.
+        ///
+        /// Pinned chats are then ordered by this, earliest first, so a new pin
+        /// lands underneath the ones already there. Ordering them by their last
+        /// message instead would let any pinned chat jump over the others the
+        /// moment somebody typed in it, which makes a deliberately arranged
+        /// list rearrange itself behind your back.
+        /// </summary>
+        public DateTime? PinnedAt { get; set; }
+
+        /// <summary>
+        /// Last time this person was seen typing here.
+        ///
+        /// A timestamp rather than a flag, so it expires on its own. A boolean
+        /// would stay true forever the moment somebody closed the tab mid-word,
+        /// and every reader would be told they were still typing.
+        /// </summary>
+        public DateTime? LastTypingAt { get; set; }
+
+        /// <summary>
+        /// When this member was last emailed about a message here.
+        ///
+        /// The whole throttle. A chat is a back-and-forth, and without a record
+        /// of the last one a five minute conversation would put thirty emails
+        /// in somebody's inbox. Stamped whenever they qualified for an email,
+        /// sent or not, so the same rows are not re-examined on every message.
+        /// </summary>
+        public DateTime? LastMessageEmailAt { get; set; }
+
+        /// <summary>
         /// When they left or were removed. Status is what the code checks; this
         /// is for showing "left on the 3rd" and for ordering rejoins.
         /// </summary>

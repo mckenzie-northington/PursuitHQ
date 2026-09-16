@@ -1,0 +1,10 @@
+# bin and obj hold absolute paths from whichever machine built them last. Copied
+# into the image they break the build with errors about a path that does not
+# exist in the container - which is a confusing way to learn this file matters.
+bin/
+obj/
+
+Dockerfile
+.dockerignore
+*.user
+storage/

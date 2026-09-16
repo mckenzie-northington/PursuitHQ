@@ -179,6 +179,8 @@ export default function SettingsPage() {
           weeklyDigestDay: Number(notify.weeklyDigestDay),
           weeklyDigestTime: notify.weeklyDigestTime,
           creationConfirmationsEnabled: notify.creationConfirmationsEnabled,
+          messageEmailsEnabled: notify.messageEmailsEnabled ?? true,
+          requestEmailsEnabled: notify.requestEmailsEnabled ?? true,
         })
       );
 
@@ -605,6 +607,28 @@ export default function SettingsPage() {
                 something, which is a different kind of email and worth not
                 burying among them.
               */}
+              <div className="border-t border-slate-200 pt-4">
+                <Toggle
+                  label="Email me when I get a message"
+                  hint="Tells you who it is from and which chat. Never what they said."
+                  checked={notify.messageEmailsEnabled ?? true}
+                  onChange={(v) => setNotify({ ...notify, messageEmailsEnabled: v })}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  At most one email per chat every 15 minutes, and none at all
+                  while you have that chat open or muted.
+                </p>
+              </div>
+
+              <div className="border-t border-slate-200 pt-4">
+                <Toggle
+                  label="Email me about requests"
+                  hint="Connection requests and group invitations, with who they are from."
+                  checked={notify.requestEmailsEnabled ?? true}
+                  onChange={(v) => setNotify({ ...notify, requestEmailsEnabled: v })}
+                />
+              </div>
+
               <div className="border-t border-slate-200 pt-4">
                 <Toggle
                   label="Confirm when I add something"

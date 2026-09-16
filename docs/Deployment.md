@@ -1,6 +1,8 @@
 # PursuitHQ — Deployment & Operations
 
-This covers what it takes to run PursuitHQ somewhere other people can actually use it.
+What it takes to run PursuitHQ somewhere other people can actually use it.
+
+Last verified against the code: 16 September 2026. Free-tier allowances below were checked in September 2026 and change often — re-check before launch rather than trusting this table.
 
 ## 1. Environments
 
@@ -9,110 +11,119 @@ This covers what it takes to run PursuitHQ somewhere other people can actually u
 | Local | Day-to-day development | Local PostgreSQL via pgAdmin | Local folder |
 | Production | Public, real users | Managed PostgreSQL | Cloud object storage |
 
-A staging environment is optional early on; add one before the first release that has real users on it.
+A staging environment is optional early; add one before the first release with real users on it.
 
 ## 2. Hosting — the free plan
 
-**Goal: $0/month.** This is achievable for everything except AI, with one real tradeoff. Verified September 2026 — free tiers change, so re-check before launch.
-
-### The all-free stack
+**Goal: $0/month.** Achievable for everything except AI, with one real tradeoff.
 
 | Piece | Service | Free allowance | Catch |
 |---|---|---|---|
 | Frontend | **Vercel Hobby** | Unlimited personal projects, custom domain, HTTPS | Non-commercial use only |
-| Database | **Neon Free** | 0.5 GB storage, 100 compute-hours/month, 10 branches | Scales to zero after 5 min idle (first query wakes it, ~1s). Permanent plan, not a trial |
-| Backend API | **Render Free web service** | 512 MB RAM, 750 instance-hours/month | **Spins down after 15 minutes of no traffic; the next request waits ~1 minute** |
-| Email | **Resend Free** | 3,000 emails/month, 100/day | Enough for reminders at small scale |
-| CI/CD | **GitHub Actions** | 2,000 minutes/month on free accounts | — |
-| File storage | Render disk is ephemeral on free | — | Use Cloudflare R2 (10 GB free, no egress fees) or Supabase Storage (1 GB free) |
+| Database | **Neon Free** | 0.5 GB storage, 100 compute-hours/month | Scales to zero after 5 min idle. **See §2a — polling breaks this assumption.** |
+| Backend API | **Render Free web service** | 512 MB RAM, 750 instance-hours/month | Spins down after 15 minutes idle; the next request waits ~1 minute |
+| Email | **Resend Free** | 3,000 emails/month, 100/day | Enough at small scale |
+| CI/CD | **GitHub Actions** | 2,000 minutes/month | — |
+| File storage | Cloudflare R2 | 10 GB, no egress fees | **Not yet implemented — see §7** |
 
-**Total: $0/month**, excluding AI.
+**Do NOT use Render's free PostgreSQL.** Free Render databases are deleted 30 days after creation. Neon's free plan is permanent. Render for the API, Neon for the database.
 
-### The one real problem: cold starts
+### Cold starts
 
-Render's free web service sleeps after 15 minutes idle, and the next visitor waits roughly a minute for it to wake. For a public app that's a bad first impression.
+Render's free service sleeps after 15 idle minutes. Either keep it warm with a free cron pinging `/health` every 10 minutes (see §8), or accept it while you are the main user. A month is ~730 hours against 750 free instance-hours, so an always-warm service just fits, with no margin.
 
-Two ways around it, both free:
+## 2a. Polling versus the Neon free tier — read before launch
 
-1. **Keep it warm.** A free cron service (cron-job.org, UptimeRobot) pings `/health` every 10 minutes. A month is ~730 hours and the free allowance is 750 instance-hours, so an always-on service *just* fits — with no margin. Watch the hours.
-2. **Accept it.** Fine while you're the main user and during development.
+This is the most important operational fact about the current architecture, and it is not obvious, because each decision is sensible on its own.
 
-### Important: do NOT use Render's free PostgreSQL
+Messaging has no SignalR. It polls. One open conversation produces:
 
-**Free Render Postgres databases are deleted 30 days after creation** (with a 14-day grace period to upgrade). Neon's free plan is permanent. Use Render for the API and Neon for the database.
+| Every | Call | Database write? |
+|---|---|---|
+| 2.5s | `GET /presence` (typing + read receipts) | no |
+| 5s | `GET /messages` | no |
+| 5s | `POST /read` | **yes** |
+| 15s | `GET /conversations` | no |
+| ≤2.5s while typing | `POST /typing` | **yes** |
+| 30s | unread dot | no |
 
-### AI: Gemini free tier
+All of it pauses when the browser tab is hidden.
 
-**Decision: Google Gemini.** Its Flash models have a free tier with no credit card required, which covers development and personal use at $0.
+Neon's free plan gives 100 compute-hours a month and scales the compute to zero after five idle minutes. That allowance is generous *because* it assumes the database is idle most of the time. Polling every 2.5 seconds means it never is.
 
-Two things to know:
+A month is about 730 hours. **One person leaving one tab open can consume the entire monthly allowance in roughly four days**, after which the app stops until the month resets.
 
-1. **Free tier content is used to improve Google's products.** Paid tiers exclude this. Since study tools and resume review send students' notes and resumes, disclose it in the privacy policy or move to a paid tier before opening the app to other people. See Security.md.
-2. **Free tier quotas are per-project and change.** Check your live limits in Google AI Studio rather than trusting any number written down here.
+Three mitigations, cheapest first:
 
-**Upgrade path when free isn't appropriate anymore:** Azure OpenAI paid by the **Azure for Students** credit ($100/year, renewable while enrolled, no credit card). That removes the training clause without costing you money. Because everything goes through `IAiService`, switching is a configuration change — see Architecture.md.
+1. **Stop writing `read` on every poll.** It currently fires whether or not anything arrived; it only needs to write when the newest message id changed. A handful of lines, and it removes most write traffic.
+2. **Back off when idle.** Widen the poll interval after a minute with no new messages; snap back on activity.
+3. **SignalR.** The real answer, and what the code was structured for — `lib/useUnread.js` is the seam. Replaces nearly all of the above with one connection.
 
-### What is not free at scale: AI
+Do (1) before launch regardless.
 
-LLM APIs bill per request, and PursuitHQ's AI features (resume review, study plans, flashcard/quiz/study-guide generation) are the expensive kind — study-tool generation sends whole documents as input.
+### AI cost
 
-Cost control, in order of importance:
-- Per-user daily caps on AI endpoints (`Ai:RequestsPerUserPerDay`)
-- Truncate or chunk uploads before sending; never send a 200-page PDF whole
-- Cache generated output — regenerate only when the student asks
-- Use a smaller/cheaper model for flashcards and quizzes; save the stronger model for resume review
-- Set a hard billing cap with the provider
+**Google Gemini**, free tier. Two things to know:
 
-Budget a few dollars a month for personal use. Opening AI features to public signups without caps is how a student project produces a surprise bill.
+1. **Free-tier content is used to improve Google's products.** Study tools and resume review send students' notes and resumes, so either disclose this in the privacy policy or move to a paid tier before opening the app to other people. See `Security.md` §7 — this is a launch blocker.
+2. Free-tier quotas are per-project and change. Check Google AI Studio, not this document.
 
-### If free isn't good enough
+Cost control, in order: the per-user daily cap (`Ai:RequestsPerUserPerDay`, already built as `AiUsageLimiter`), truncating documents before sending, caching generated output, cheaper models for flashcards and quizzes, and a hard billing cap with the provider.
+
+**Upgrade path:** Azure for Students gives $100/year in credit, renewable while enrolled, no credit card. Because everything goes through `IAiService`, switching providers is a configuration change.
+
+### If free is not good enough
 
 | Upgrade | Cost | What it fixes |
 |---|---|---|
-| Render Starter | ~$7/month | No spin-down, no cold starts — the single highest-value upgrade |
-| Neon Launch | ~$19/month | More storage and compute when 0.5 GB gets tight |
-| **Azure for Students** | **$100 credit/year, no credit card** | You qualify as a full-time student: $100/year in credit, renewable annually while enrolled, plus 65+ always-free services. Also check the GitHub Student Developer Pack for additional hosting credits |
+| Render Starter | ~$7/month | No spin-down, no cold starts — the highest-value single upgrade |
+| Neon Launch | ~$19/month | More storage and compute |
 
-Recommended path: start entirely free, and if cold starts become annoying once other people are using it, $7/month for Render Starter is the one upgrade worth making first.
+## 3. Building the API — Docker
 
-## 3. Environment Variables
+`PursuitHQ.API/Dockerfile` builds and runs the API. Hosts build it with the **API folder** as the context, so set the root directory to `Backend/PursuitHQ/PursuitHQ.API`.
 
-Set these on the host; never commit them.
+It listens on port **8080** (`ASPNETCORE_URLS`).
 
-**Backend**
+**Two things in that Dockerfile must not be "optimised" away.** It installs `tzdata` and uses the Debian image rather than Alpine.
 
-| Variable | Example / notes |
+PursuitHQ stores wall-clock times and converts them with IANA zone ids (see `Architecture.md`). That needs both ICU and the zone database. Alpine ships without ICU, and setting `InvariantGlobalization=true` strips the zone data. Either one turns every due date, reminder and class time into the wrong hour — silently, with no error anywhere. If you change the base image, test a time zone conversion before believing it works.
+
+`.dockerignore` excludes `bin/` and `obj/`, which hold absolute paths from whichever machine built them last and break the container build with an error about a path that does not exist.
+
+## 4. Environment Variables
+
+Set these on the host. Never commit them.
+
+**Backend (Render)**
+
+| Variable | Notes |
 |---|---|
-| `ConnectionStrings__DefaultConnection` | `Host=...;Database=pursuithq;Username=...;Password=...` |
-| `Jwt__Key` | 32+ character random string |
-| `Jwt__Issuer` / `Jwt__Audience` | `https://api.pursuithq.app` |
-| `Jwt__ExpiryMinutes` | `60` |
-| `FileStorage__Provider` | `Cloud` in production |
-| `FileStorage__ConnectionString` | Blob/S3 credentials |
-| `FileStorage__MaxFileSizeBytes` | `26214400` (25 MB) |
-| `Ai__ApiKey` | LLM provider key |
-| `Ai__Provider` | `Gemini` |
-| `Ai__ApiKey` | Gemini API key from Google AI Studio |
-| `Ai__FlashcardModel` / `Ai__QuizModel` / `Ai__ResumeModel` | Model id per task |
-| `Ai__RequestsPerUserPerDay` | `20` |
-| `Email__Provider` | `Resend` |
-| `Email__ApiKey` | Resend API key |
-| `Email__FromAddress` | `reminders@yourdomain.com` |
-| `JobSearch__Provider` | `Adzuna` |
-| `JobSearch__AppId` / `JobSearch__AppKey` | Job-board API credentials |
-| `Jobs__SchedulerSecret` | Shared secret the external cron sends to trigger reminder jobs |
-| `Cors__AllowedOrigins` | `https://pursuithq.vercel.app` |
-| `ASPNETCORE_ENVIRONMENT` | `Production` |
+| `ASPNETCORE_ENVIRONMENT` | `Production`. Gates Swagger and the `forgot-password` account disclosure — see `Security.md` §1 |
+| `PORT` | `8080`, matching the Dockerfile |
+| `ConnectionStrings__DefaultConnection` | Use Neon's **.NET** connection string; it includes the SSL settings |
+| `Jwt__Key` | 32+ random characters. Generate fresh: `openssl rand -base64 48`. Never the development value |
+| `Jwt__Issuer` | e.g. `https://api.yourdomain.com` |
+| `Jwt__Audience` | **`PursuitHQClient`** — must differ from the 2FA audience or two-step verification silently stops working. `Security.md` §1 |
+| `Jwt__ExpiryMinutes` | Currently `480` in appsettings. Consider lowering while the token still lives in `localStorage` |
+| `Cors__AllowedOrigins` | Comma-separated: `https://yourdomain.com,https://www.yourdomain.com`. Indexed keys (`__0`, `__1`) also work |
+| `Ai__ApiKey` | Gemini key |
+| `Ai__RequestsPerUserPerDay` | e.g. `20` |
+| `Email__ApiKey` | Resend key |
+| `Email__FromAddress` | e.g. `noreply@yourdomain.com` |
+| `Email__AppUrl` | Public frontend URL — used for links inside emails |
 
-**Frontend**
+**Frontend (Vercel)**
 
 | Variable | Notes |
 |---|---|
 | `NEXT_PUBLIC_API_URL` | Public base URL of the API |
 
-Anything prefixed `NEXT_PUBLIC_` is visible in the browser — never put a secret there.
+Anything prefixed `NEXT_PUBLIC_` is visible in the browser. Never put a secret there.
 
-## 4. Database Migrations
+**Not real — do not set these.** Earlier versions of this document listed `FileStorage__Provider`, `FileStorage__ConnectionString`, `JobSearch__AppId`/`AppKey` and `Jobs__SchedulerSecret`. No code reads any of them. The job-board feature was removed in September 2026, and reminders run in-process (§6), not via an external cron with a shared secret.
+
+## 5. Database Migrations
 
 EF Core migrations are the only way the schema changes. Never edit the database by hand.
 
@@ -122,29 +133,95 @@ dotnet ef migrations add AddStudyMaterials
 
 # apply locally
 dotnet ef database update
+```
 
-# generate a script to apply in production
+To apply to production from your machine, pass the connection string for that one command so it never touches your user-secrets:
+
+```bash
+ConnectionStrings__DefaultConnection="<production string>" dotnet ef database update
+```
+
+Or generate a script to run as a gated deploy step:
+
+```bash
 dotnet ef migrations script --idempotent --output migrate.sql
 ```
 
 **Rules**
-- Migrations are committed to git alongside the entity changes that caused them.
-- Production migrations run as a deliberate deploy step, not automatically at app startup.
-- Back up the production database before applying a migration that drops or renames anything.
+- Migrations are committed alongside the entity changes that caused them.
+- Production migrations are a deliberate step you run, never automatic at startup. With more than one instance, auto-migration means two processes racing the same schema change.
+- Back up before applying anything that drops or renames.
 
-## 5. CI/CD (GitHub Actions)
+**Read every generated migration before applying it.** EF's ordering has been wrong twice in this project, both times when a migration both added and dropped a column: it generated the `DropColumn` before the `AddColumn`, which would have destroyed the data being copied. Both were caught by reading the file. It also ignores C# property initialisers in some cases, so a column meant to default to `true` can be generated as `false` and silently opt every existing row out.
 
-Suggested pipeline, triggered on push to `main`:
+## 6. Background Work
 
-1. **Build & test API** — `dotnet restore`, `dotnet build`, `dotnet test`
+Reminders run **in-process**, on a timer inside the API (`ReminderBackgroundService`, every 5 minutes). There is no external scheduler and no `/api/jobs/run` endpoint.
+
+Two consequences:
+
+- On a host that sleeps, the timer sleeps too. A reminder due during a nap goes out late, when the next request wakes the service. The keep-warm ping in §8 also keeps reminders punctual.
+- Email is queued in memory (`EmailQueue`) and sent by a background worker. **Anything still queued when the process stops is lost.** That was an acceptable trade when the queue only carried "you added a course" confirmations; it now also carries message notifications and connection requests, which matter more. Revisit when the API stops sleeping.
+
+## 7. File Storage — known limitation
+
+`IFileStorageService` currently writes to local disk (`FileStorage:LocalPath`, outside `wwwroot`).
+
+**On an ephemeral host this loses files on every restart** — and Render's free plan restarts every time it sleeps. Profile photos, group photos and chat attachments all live there. Messages survive, because they are in the database; their attachments come back broken, which reads as data loss because it is.
+
+The fix is an `IFileStorageService` implementation against Cloudflare R2's S3-compatible API. The interface was built for this. Do it before anyone else's files are in there.
+
+## 8. Health Checks
+
+Two endpoints, deliberately different:
+
+| Endpoint | Checks | Use for |
+|---|---|---|
+| `/health` | Nothing — answers immediately | Keep-warm pings and uptime monitoring |
+| `/health/ready` | Database connectivity | Diagnosing a deploy |
+
+**The keep-warm cron must hit `/health`, never `/health/ready`.** A database-touching ping every 10 minutes would keep Neon permanently awake and spend the whole monthly compute allowance proving the app is alive — see §2a. That is the only reason there are two.
+
+Set Render's own Health Check Path to `/health` too.
+
+## 9. Custom Domain
+
+Add the domain in the Render and Vercel dashboards first; each tells you the exact record to create. Then create them at your DNS provider, using the values those dashboards give you rather than any written here — they change.
+
+Typically: apex and `www` point at Vercel, and an `api` subdomain points at Render.
+
+**If your DNS is behind Cloudflare, two settings will break this.**
+
+- **Set the records to DNS only (grey cloud), not proxied (orange).** With the proxy on, Vercel and Render frequently cannot complete their certificate challenge, and you sit on "pending certificate" with no useful error. Both provide their own TLS. You can enable the proxy later, once certificates have issued.
+- **SSL/TLS mode must be Full (strict).** On **Flexible**, Cloudflare talks to the origin over plain HTTP, the app redirects to HTTPS, Cloudflare retries over HTTP, and you get an infinite redirect loop — `ERR_TOO_MANY_REDIRECTS` on a site that works perfectly at its `.onrender.com` address. This is the most common way this setup fails.
+
+**Put the API on a subdomain of the same registrable domain as the frontend** (`api.yourdomain.com`, not the Render hostname). Beyond looking right, it makes the planned move of the JWT into an httpOnly cookie far simpler: a cookie scoped to the parent domain with `SameSite=Lax`, instead of the fragile cross-site `SameSite=None` that unrelated domains would force.
+
+## 10. Email Deliverability
+
+Verify your domain with Resend and add the SPF and DKIM records it gives you, plus DMARC:
+
+| Type | Name | Content |
+|---|---|---|
+| TXT | `_dmarc` | `v=DMARC1; p=none; rua=mailto:you@yourdomain.com` |
+
+Until all three align, reminder and message email lands in spam. Every email feature will appear to do nothing, with no error anywhere — the queue reports success either way.
+
+## 11. CI/CD (GitHub Actions)
+
+Suggested pipeline on push to `main`:
+
+1. **Build API** — `dotnet restore`, `dotnet build`
 2. **Build frontend** — `npm ci`, `npm run build`
 3. **Security check** — `dotnet list package --vulnerable`, `npm audit`
-4. **Deploy** — publish the API to the host; Vercel deploys the frontend from the same push
+4. **Deploy** — Render and Vercel both deploy from the push
 5. **Migrate** — apply the migration script as a gated step
 
-Protect `main` so it can only be updated through a pull request that passes CI. Work on feature branches named `feature/study-materials`, `fix/upload-limit`, etc.
+**There is no `dotnet test` step because there are no tests.** The solution contains only `PursuitHQ.API`. Add the step when the first test project exists; until then a green pipeline means "it compiles", nothing more.
 
-## 6. Local Setup (for a new developer)
+Protect `main` so it only changes through a pull request that passes CI.
+
+## 12. Local Setup (for a new developer)
 
 ```bash
 git clone https://github.com/mckenzie-northington/PursuitHQ.git
@@ -159,32 +236,38 @@ dotnet ef database update
 dotnet run          # https://localhost:7136/swagger
 
 # Frontend
-cd ../../../Frontend
+cd ../../../Frontend/pursuithq-web
 npm install
 npm run dev         # http://localhost:3000
 ```
 
-Requires: .NET 10 SDK, Node.js LTS, PostgreSQL running locally.
+Requires .NET 10 SDK, Node.js LTS, PostgreSQL running locally. On Linux or WSL, `libicu` must be installed or every time zone conversion fails.
 
-## 7. Monitoring & Operations
+## 13. Monitoring & Operations
 
-| Concern | Approach |
+| Concern | State |
 |---|---|
-| Logging | Structured logging (Serilog) to the host's log stream; no sensitive content logged |
-| Errors | Global exception handler returning the standard error shape; alerting via the host or Sentry |
-| Uptime | Health endpoint at `/health`; external uptime check pinging it |
-| Backups | Daily automated database backup with 7-day retention; restore tested at least once before launch |
-| File durability | Cloud storage handles redundancy; local disk storage is development-only |
+| Health endpoint | **Built** — `/health` and `/health/ready` |
+| Logging | Default ASP.NET logging to the host's stream. Structured logging (Serilog) is not set up |
+| Errors | `UseExceptionHandler` returns the standard shape. **No error monitoring — a 500 in production is invisible unless someone reports it.** Sentry's free tier would fix this |
+| Uptime | External check pinging `/health` |
+| Backups | Neon provides them. Untested until you rehearse a restore |
+| File durability | **Local disk — see §7** |
 
-## 8. Launch Checklist
+## 14. Launch Checklist
 
 - [ ] Production database provisioned, migrations applied
 - [ ] All environment variables set on both hosts
-- [ ] Cloud file storage configured and an upload/download verified end to end
-- [ ] Custom domain with HTTPS on API and frontend
-- [ ] CORS pointing at the real frontend origin
-- [ ] Security checklist in `Security.md` fully completed
-- [ ] Backups enabled and a restore rehearsed
-- [ ] Health check and error alerting live
-- [ ] Registration, login, upload, and one AI feature smoke-tested in production
-- [ ] Privacy policy and terms published if the app takes public signups
+- [ ] `ASPNETCORE_ENVIRONMENT=Production` confirmed
+- [ ] `Jwt__Audience` is `PursuitHQClient`, distinct from the 2FA audience
+- [ ] Custom domain with HTTPS on API and frontend; DNS-only records; SSL mode Full (strict)
+- [ ] `Cors__AllowedOrigins` matches the real frontend origins exactly, `www` included
+- [ ] `/health` and `/health/ready` both return Healthy
+- [ ] Keep-warm cron pointed at `/health`, not `/health/ready`
+- [ ] SPF, DKIM and DMARC verified; a real email received
+- [ ] Security checklist in `Security.md` §9 worked through
+- [ ] Backups enabled and one restore rehearsed
+- [ ] Error monitoring live
+- [ ] Register, log in, send a message, and one AI feature smoke-tested in production
+- [ ] Privacy policy and terms published if taking public signups
+- [ ] **Known limitation accepted or fixed: uploaded files do not survive a restart (§7)**

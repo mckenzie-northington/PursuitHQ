@@ -66,7 +66,9 @@ namespace PursuitHQ.API.Controllers
 
         [HttpPost]
         public async Task<ActionResult<StudentCardDto>> SendRequest(
-            ConnectionRequestDto dto, CancellationToken ct)
+            ConnectionRequestDto dto,
+            [FromServices] IRequestNotifier notifier,
+            CancellationToken ct)
         {
             if (dto.AddresseeId == CurrentUserId)
             {
@@ -119,6 +121,9 @@ namespace PursuitHQ.API.Controllers
                         existing.RespondedAt = null;
                         await _db.SaveChangesAsync(ct);
 
+                        await notifier.ConnectionRequestedAsync(
+                            dto.AddresseeId, CurrentUserId, ct);
+
                         return Ok(StudentCardMapper.ToCard(
                             target, ProfileVisibility.Card, existing, CurrentUserId));
                 }
@@ -135,6 +140,9 @@ namespace PursuitHQ.API.Controllers
 
             _db.Connections.Add(connection);
             await _db.SaveChangesAsync(ct);
+
+            // After the save, and it never throws.
+            await notifier.ConnectionRequestedAsync(dto.AddresseeId, CurrentUserId, ct);
 
             return Ok(StudentCardMapper.ToCard(
                 target, ProfileVisibility.Card, connection, CurrentUserId));

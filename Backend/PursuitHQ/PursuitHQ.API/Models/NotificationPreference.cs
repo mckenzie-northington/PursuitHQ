@@ -58,6 +58,27 @@ namespace PursuitHQ.API.Models
         /// </summary>
         public bool CreationConfirmationsEnabled { get; set; }
 
+        /// <summary>
+        /// Email when somebody messages you in PursuitHQ.
+        ///
+        /// On by default: a message is addressed to you by a person and is the
+        /// one thing here that is worth knowing about while the tab is closed.
+        /// The email names the sender and the group, never the message itself -
+        /// a mail provider is a third party, and what two students said to each
+        /// other is not its business.
+        /// </summary>
+        public bool MessageEmailsEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Email when another student asks to connect, or invites you to a
+        /// group.
+        ///
+        /// On by default, and for the same reason as message email: somebody is
+        /// waiting on an answer from you, and an invitation nobody sees is an
+        /// invitation nobody accepts.
+        /// </summary>
+        public bool RequestEmailsEnabled { get; set; } = true;
+
         /// <summary>IANA time zone id, e.g. "America/New_York". Required so reminders arrive at the right local time.</summary>
         public string TimeZone { get; set; } = "America/New_York";
     }

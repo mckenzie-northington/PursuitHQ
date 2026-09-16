@@ -275,8 +275,15 @@ export const conversations = {
     api.put(`/api/conversations/${id}`, { name, description }),
 
   setMuted: (id, muted) => api.post(`/api/conversations/${id}/mute`, { muted }),
+  setPinned: (id, pinned) => api.post(`/api/conversations/${id}/pin`, { pinned }),
+  markUnread: (id) => api.post(`/api/conversations/${id}/unread`, {}),
+
+  /** Across every conversation you are in. Under two characters returns nothing. */
+  searchMessages: (q) =>
+    api.get(`/api/conversations/search?q=${encodeURIComponent(q)}`),
 
   groupPhoto: (id) => fetchBlob(`/api/conversations/${id}/photo`),
+  removeGroupPhoto: (id) => api.del(`/api/conversations/${id}/photo`),
   uploadGroupPhoto: (id, file) => {
     const form = new FormData();
     form.append("file", file);
@@ -302,9 +309,14 @@ export const conversations = {
   react: (id, messageId, emoji) =>
     api.post(`/api/conversations/${id}/messages/${messageId}/reactions`, { emoji }),
 
-  sendAttachment: (id, file, body) => {
+  /**
+   * `files` is a single File or an array of them. They are all appended under
+   * the same field name; the API reads whatever files arrived rather than
+   * binding to a parameter, so one and ten take exactly the same path.
+   */
+  sendAttachment: (id, files, body) => {
     const form = new FormData();
-    form.append("file", file);
+    for (const file of [files].flat()) form.append("files", file);
     if (body) form.append("body", body);
     return upload(`/api/conversations/${id}/messages/attachment`, form);
   },
@@ -314,6 +326,12 @@ export const conversations = {
     fetchBlob(`/api/conversations/${id}/attachments/${attachmentId}`),
   deleteMessage: (id, messageId) =>
     api.del(`/api/conversations/${id}/messages/${messageId}`),
+
+  /** Fire-and-forget: the composer calls this on a throttle while you type. */
+  typing: (id) => api.post(`/api/conversations/${id}/typing`, {}),
+
+  /** Who is typing and how far everyone has read - polled faster than messages. */
+  presence: (id) => api.get(`/api/conversations/${id}/presence`),
 
   markRead: (id) => api.post(`/api/conversations/${id}/read`, {}),
   /** Leaving is removing yourself, which the server treats as the same thing. */

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PursuitHQ.API.Data;
@@ -11,9 +12,11 @@ using PursuitHQ.API.Data;
 namespace PursuitHQ.API.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260916173118_AddMessageEmailNotifications")]
+    partial class AddMessageEmailNotifications
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -529,13 +532,7 @@ namespace PursuitHQ.API.Migrations
                     b.Property<DateTime?>("LastReadAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTime?>("LastTypingAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<DateTime?>("LeftAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("PinnedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("Role")
@@ -1042,9 +1039,6 @@ namespace PursuitHQ.API.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<bool>("MessageEmailsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("RequestEmailsEnabled")
                         .HasColumnType("boolean");
 
                     b.Property<string>("TimeZone")

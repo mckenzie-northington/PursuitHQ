@@ -348,16 +348,19 @@ function Connections() {
 
   return (
     <div>
-      {/* Only once the list is long enough that scanning it is a chore. */}
-      {people.length > 5 && (
-        <input
-          type="search"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder={`Search your ${people.length} connections`}
-          className="mb-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-        />
-      )}
+      {/* Always shown, even for a short list. It used to appear only past five
+          connections, which meant the one feature people go looking for was
+          invisible exactly when they were learning the page - and a search box
+          that comes and goes is harder to trust than one that is simply there. */}
+      <input
+        type="search"
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        placeholder={`Search your ${people.length} ${
+          people.length === 1 ? "connection" : "connections"
+        }`}
+        className="mb-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+      />
 
       {shown.length === 0 ? (
         <p className="py-6 text-center text-sm text-slate-500">

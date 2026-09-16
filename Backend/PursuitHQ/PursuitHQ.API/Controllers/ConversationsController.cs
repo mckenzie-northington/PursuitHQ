@@ -29,6 +29,25 @@ namespace PursuitHQ.API.Controllers
         private const int MaxGroupMembers = 100;
         private const int MaxAttachmentBytes = 15 * 1024 * 1024;
 
+        /// <summary>
+        /// How long after their last keystroke somebody still counts as typing.
+        ///
+        /// Comfortably longer than the client's ping interval, so a steady
+        /// typist never flickers, and short enough that somebody who walks away
+        /// mid-sentence stops being announced.
+        /// </summary>
+        private const int TypingWindowSeconds = 6;
+
+        /// <summary>Per message. The frontend copy of this is MAX_ATTACHMENTS.</summary>
+        private const int MaxAttachmentsPerMessage = 10;
+
+        /// <summary>
+        /// The whole upload. Ten files at the per-file limit would be 150MB,
+        /// which nobody needs; this is the point at which the request is
+        /// refused by Kestrel before it is read into the process at all.
+        /// </summary>
+        private const int MaxUploadBytes = 60 * 1024 * 1024;
+
         /// <summary>Re-encoded on the way in, so these can render inline.</summary>
         private static readonly string[] ImageExtensions =
             { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
@@ -61,7 +80,15 @@ namespace PursuitHQ.API.Controllers
         {
             var mine = await _db.ConversationMembers
                 .Where(m => m.UserId == CurrentUserId && m.Status == MembershipStatus.Active)
-                .Select(m => new { m.ConversationId, m.LastReadAt, m.Role, m.IsMuted })
+                .Select(m => new
+                {
+                    m.ConversationId,
+                    m.LastReadAt,
+                    m.Role,
+                    m.IsMuted,
+                    m.IsPinned,
+                    m.PinnedAt
+                })
                 .ToListAsync(ct);
 
             var ids = mine.Select(m => m.ConversationId).ToList();
@@ -86,7 +113,7 @@ namespace PursuitHQ.API.Controllers
                 .Where(m => lastIds.Contains(m.Id))
                 .ToListAsync(ct);
 
-            var unread = await UnreadPerConversationAsync(ct);
+            var unread = await UnreadPerConversationAsync(includeMuted: true, ct);
 
             var summaries = new List<ConversationSummaryDto>();
 
@@ -115,20 +142,35 @@ namespace PursuitHQ.API.Controllers
                         : last?.Sender?.FirstName,
                     LastMessageAt = conversation.LastMessageAt,
                     IsMuted = membership.IsMuted,
+                    IsPinned = membership.IsPinned,
+                    PinnedAt = membership.PinnedAt,
                     MyRole = membership.Role,
                     UnreadCount = unread
                         .FirstOrDefault(u => u.ConversationId == conversation.Id)?.Count ?? 0
                 });
             }
 
-            return Ok(summaries);
+            // Pinned first, then most recent. Sorted here rather than in SQL
+            // because the pin lives on the membership and the timestamp on the
+            // conversation, and the list is short enough that one ordering pass
+            // costs nothing.
+            //
+            // Within the pinned block the order is when they were pinned,
+            // earliest first, so a new pin goes underneath the existing ones and
+            // an arrangement somebody made on purpose stays put. Anything pinned
+            // before that was recorded sorts to the top of the block.
+            return Ok(summaries
+                .OrderByDescending(s => s.IsPinned)
+                .ThenBy(s => s.PinnedAt ?? DateTime.MinValue)
+                .ThenByDescending(s => s.LastMessageAt)
+                .ToList());
         }
 
         /// <summary>Drives the dot on the messages icon.</summary>
         [HttpGet("unread")]
         public async Task<ActionResult<UnreadDto>> Unread(CancellationToken ct)
         {
-            var counts = await UnreadPerConversationAsync(ct);
+            var counts = await UnreadPerConversationAsync(includeMuted: false, ct);
 
             return Ok(new UnreadDto
             {
@@ -394,7 +436,11 @@ namespace PursuitHQ.API.Controllers
         }
 
         [HttpPost("{id:int}/invitations")]
-        public async Task<IActionResult> Invite(int id, InviteMembersDto dto, CancellationToken ct)
+        public async Task<IActionResult> Invite(
+            int id,
+            InviteMembersDto dto,
+            [FromServices] IRequestNotifier notifier,
+            CancellationToken ct)
         {
             var membership = await MemberAsync(id, ct);
             if (membership is null || membership.Role < ConversationRole.Admin)
@@ -418,6 +464,11 @@ namespace PursuitHQ.API.Controllers
                     "NotConnected", "You can only invite students you are connected with."));
             }
 
+            // Only the people actually newly invited are emailed. Somebody
+            // already in the group, or already holding an invitation, is skipped
+            // by the branches below and must not be told again.
+            var invited = new List<string>();
+
             foreach (var userId in wanted)
             {
                 var existing = conversation.Members.FirstOrDefault(m => m.UserId == userId);
@@ -438,6 +489,8 @@ namespace PursuitHQ.API.Controllers
                         InvitedById = CurrentUserId,
                         JoinedAt = DateTime.UtcNow
                     });
+
+                    invited.Add(userId);
                 }
                 else if (existing.Status == MembershipStatus.Left)
                 {
@@ -448,10 +501,14 @@ namespace PursuitHQ.API.Controllers
                     existing.JoinedAt = DateTime.UtcNow;
                     existing.LeftAt = null;
                     existing.Role = ConversationRole.Member;
+
+                    invited.Add(userId);
                 }
             }
 
             await _db.SaveChangesAsync(ct);
+
+            await notifier.GroupInvitedAsync(id, CurrentUserId, invited, ct);
 
             return NoContent();
         }
@@ -762,7 +819,10 @@ namespace PursuitHQ.API.Controllers
 
         [HttpPost("{id:int}/messages")]
         public async Task<ActionResult<MessageDto>> Send(
-            int id, SendMessageDto dto, CancellationToken ct)
+            int id,
+            SendMessageDto dto,
+            [FromServices] IMessageNotifier notifier,
+            CancellationToken ct)
         {
             var membership = await MemberAsync(id, ct);
             if (membership is null) return NotFound(NotFoundError());
@@ -833,6 +893,10 @@ namespace PursuitHQ.API.Controllers
             membership.LastReadAt = message.SentAt;
 
             await _db.SaveChangesAsync(ct);
+
+            // After the save, and it never throws: an email provider having a
+            // bad minute must not turn a sent message into an error.
+            await notifier.MessageSentAsync(id, CurrentUserId, ct);
 
             await _db.Entry(message).Reference(m => m.Sender).LoadAsync(ct);
             if (message.ReplyToMessageId is not null)
@@ -913,6 +977,204 @@ namespace PursuitHQ.API.Controllers
             return NoContent();
         }
 
+        [HttpPost("{id:int}/pin")]
+        public async Task<IActionResult> Pin(int id, PinDto dto, CancellationToken ct)
+        {
+            var membership = await MemberAsync(id, ct);
+            if (membership is null) return NotFound(NotFoundError());
+
+            membership.IsPinned = dto.Pinned;
+
+            // Stamped only when it is newly pinned, so re-pinning something
+            // already pinned does not quietly move it to the bottom.
+            if (dto.Pinned) membership.PinnedAt ??= DateTime.UtcNow;
+            else membership.PinnedAt = null;
+
+            await _db.SaveChangesAsync(ct);
+
+            return NoContent();
+        }
+
+        /// <summary>
+        /// Puts the unread marker back behind the newest message.
+        ///
+        /// Set to just before the last message rather than to null: null means
+        /// "never opened", which would mark the entire history unread instead
+        /// of the one thing you wanted to come back to.
+        /// </summary>
+        [HttpPost("{id:int}/unread")]
+        public async Task<IActionResult> MarkUnread(int id, CancellationToken ct)
+        {
+            var membership = await MemberAsync(id, ct);
+            if (membership is null) return NotFound(NotFoundError());
+
+            var last = await _db.Messages
+                .Where(m => m.ConversationId == id
+                            && m.Kind == MessageKind.Text
+                            && m.SenderId != CurrentUserId)
+                .OrderByDescending(m => m.SentAt)
+                .Select(m => (DateTime?)m.SentAt)
+                .FirstOrDefaultAsync(ct);
+
+            // Nothing from anybody else means there is nothing to be unread.
+            if (last is null) return NoContent();
+
+            membership.LastReadAt = last.Value.AddSeconds(-1);
+            await _db.SaveChangesAsync(ct);
+
+            return NoContent();
+        }
+
+        /// <summary>
+        /// Searches every conversation the student is in.
+        ///
+        /// Scoped by membership in the same query rather than filtered after,
+        /// so there is no arrangement of parameters that reaches a message from
+        /// a conversation they are not in.
+        /// </summary>
+        [HttpGet("search")]
+        public async Task<ActionResult<List<MessageSearchHitDto>>> SearchMessages(
+            [FromQuery] string? q, CancellationToken ct)
+        {
+            var query = (q ?? string.Empty).Trim();
+            if (query.Length < 2) return Ok(new List<MessageSearchHitDto>());
+
+            var mine = await _db.ConversationMembers
+                .Where(m => m.UserId == CurrentUserId && m.Status == MembershipStatus.Active)
+                .Select(m => m.ConversationId)
+                .ToListAsync(ct);
+
+            var pattern = $"%{query.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_")}%";
+
+            var hits = await _db.Messages
+                .Include(m => m.Sender)
+                .Include(m => m.Conversation)!.ThenInclude(c => c!.Members).ThenInclude(m => m.User)
+                .Where(m => mine.Contains(m.ConversationId)
+                            && m.Kind == MessageKind.Text
+                            && m.DeletedAt == null
+                            && EF.Functions.ILike(m.Body, pattern))
+                .OrderByDescending(m => m.SentAt)
+                .Take(50)
+                .ToListAsync(ct);
+
+            return Ok(hits.Select(m => new MessageSearchHitDto
+            {
+                ConversationId = m.ConversationId,
+                IsGroup = m.Conversation?.IsGroup ?? false,
+                ConversationTitle = SearchTitle(m.Conversation),
+                MessageId = m.Id,
+                SenderName = m.Sender is null ? "Someone" : m.Sender.FirstName,
+                Body = m.Body,
+                SentAt = m.SentAt
+            }).ToList());
+        }
+
+        [HttpDelete("{id:int}/photo")]
+        public async Task<IActionResult> RemovePhoto(int id, CancellationToken ct)
+        {
+            var membership = await MemberAsync(id, ct);
+            if (membership is null || membership.Role < ConversationRole.Admin)
+            {
+                return NotFound(NotFoundError());
+            }
+
+            var conversation = await _db.Conversations.FirstOrDefaultAsync(
+                c => c.Id == id && c.IsGroup, ct);
+
+            if (conversation is null) return NotFound(NotFoundError());
+
+            var previous = conversation.PhotoPath;
+
+            conversation.PhotoPath = null;
+            conversation.PhotoContentType = null;
+            await _db.SaveChangesAsync(ct);
+
+            if (!string.IsNullOrEmpty(previous))
+            {
+                try
+                {
+                    await _storage.DeleteAsync(previous, ct);
+                }
+                catch
+                {
+                    // A leftover file is clutter; throwing would undo a save that
+                    // already succeeded.
+                }
+            }
+
+            return NoContent();
+        }
+
+        /// <summary>
+        /// "I am still typing." Called on a throttle from the composer.
+        ///
+        /// Deliberately the cheapest write in the feature: one timestamp, no
+        /// reads beyond the membership check. It is the most frequent call the
+        /// API will take, and it must never become more than that.
+        /// </summary>
+        [HttpPost("{id:int}/typing")]
+        public async Task<IActionResult> Typing(int id, CancellationToken ct)
+        {
+            var membership = await MemberAsync(id, ct);
+            if (membership is null) return NotFound(NotFoundError());
+
+            membership.LastTypingAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+
+            return NoContent();
+        }
+
+        /// <summary>
+        /// Who is typing, and how far everybody else has read.
+        ///
+        /// Separate from the messages endpoint because these change every second
+        /// or two while the messages do not, and pulling the whole history that
+        /// often to learn one timestamp would be wasteful. Only the viewer's own
+        /// conversation is ever reported on, and only to its members.
+        /// </summary>
+        [HttpGet("{id:int}/presence")]
+        public async Task<ActionResult<ConversationPresenceDto>> Presence(
+            int id, CancellationToken ct)
+        {
+            if (await MemberAsync(id, ct) is null) return NotFound(NotFoundError());
+
+            var cutoff = DateTime.UtcNow.AddSeconds(-TypingWindowSeconds);
+
+            var others = await _db.ConversationMembers
+                .Where(m => m.ConversationId == id
+                            && m.UserId != CurrentUserId
+                            && m.Status == MembershipStatus.Active)
+                .Select(m => new
+                {
+                    m.UserId,
+                    m.User!.FirstName,
+                    m.LastReadAt,
+                    m.LastTypingAt
+                })
+                .ToListAsync(ct);
+
+            return Ok(new ConversationPresenceDto
+            {
+                Typing = others
+                    .Where(o => o.LastTypingAt != null && o.LastTypingAt > cutoff)
+                    .Select(o => new PresencePersonDto
+                    {
+                        Id = o.UserId,
+                        FirstName = string.IsNullOrWhiteSpace(o.FirstName) ? "Someone" : o.FirstName
+                    })
+                    .ToList(),
+
+                Readers = others
+                    .Select(o => new PresencePersonDto
+                    {
+                        Id = o.UserId,
+                        FirstName = string.IsNullOrWhiteSpace(o.FirstName) ? "Someone" : o.FirstName,
+                        LastReadAt = o.LastReadAt
+                    })
+                    .ToList()
+            });
+        }
+
         [HttpPost("{id:int}/read")]
         public async Task<IActionResult> MarkRead(int id, CancellationToken ct)
         {
@@ -971,45 +1233,71 @@ namespace PursuitHQ.API.Controllers
         }
 
         /// <summary>
-        /// Sends a file or an image, with an optional caption.
+        /// Sends up to <see cref="MaxAttachmentsPerMessage"/> files or images,
+        /// with an optional caption, as one message.
         ///
         /// One endpoint rather than "upload, then send with an id", because a
         /// two-step version leaves orphaned uploads behind every time somebody
         /// changes their mind between the two.
         /// </summary>
         [HttpPost("{id:int}/messages/attachment")]
-        [RequestSizeLimit(MaxAttachmentBytes)]
+        [RequestSizeLimit(MaxUploadBytes)]
         public async Task<ActionResult<MessageDto>> SendAttachment(
             int id,
-            IFormFile file,
             [FromForm] string? body,
             [FromServices] IProfilePhotoService images,
+            [FromServices] IMessageNotifier notifier,
             CancellationToken ct)
         {
             var membership = await MemberAsync(id, ct);
             if (membership is null) return NotFound(NotFoundError());
 
-            if (file is null || file.Length == 0)
+            // Read off the request rather than bound to a parameter, so one file
+            // and ten arrive by exactly the same path and no field name has to
+            // agree between the two sides beyond "there are files here".
+            var files = Request.Form.Files;
+
+            if (files.Count == 0)
             {
                 return BadRequest(new ApiErrorDto("NoFile", "Choose a file first."));
             }
 
-            if (file.Length > MaxAttachmentBytes)
+            if (files.Count > MaxAttachmentsPerMessage)
             {
                 return BadRequest(new ApiErrorDto(
-                    "FileTooLarge", "Attachments are limited to 15MB."));
+                    "TooManyFiles",
+                    $"Up to {MaxAttachmentsPerMessage} files can go in one message."));
             }
 
-            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-            var looksLikeImage = ImageExtensions.Contains(extension);
-
-            // The extension is the gate, not the content type. A content type
-            // arrives from the uploader and is a claim, not a fact.
-            if (!looksLikeImage && !FileExtensions.Contains(extension))
+            // Every file is checked before any of them is written. A batch that
+            // failed halfway would otherwise leave stored files belonging to a
+            // message that never existed, and the student would see one refusal
+            // with no idea which file caused it.
+            foreach (var candidate in files)
             {
-                return BadRequest(new ApiErrorDto(
-                    "UnsupportedFile",
-                    "That kind of file cannot be shared here. Images, PDFs, Office documents, text and zip files all work."));
+                if (candidate.Length == 0)
+                {
+                    return BadRequest(new ApiErrorDto(
+                        "EmptyFile", $"\"{candidate.FileName}\" is empty."));
+                }
+
+                if (candidate.Length > MaxAttachmentBytes)
+                {
+                    return BadRequest(new ApiErrorDto(
+                        "FileTooLarge", $"\"{candidate.FileName}\" is over the 15MB limit."));
+                }
+
+                // The extension is the gate, not the content type. A content
+                // type arrives from the uploader and is a claim, not a fact.
+                var candidateExtension = Path.GetExtension(candidate.FileName).ToLowerInvariant();
+
+                if (!ImageExtensions.Contains(candidateExtension)
+                    && !FileExtensions.Contains(candidateExtension))
+                {
+                    return BadRequest(new ApiErrorDto(
+                        "UnsupportedFile",
+                        $"\"{candidate.FileName}\" cannot be shared here. Images, PDFs, Office documents, text and zip files all work."));
+                }
             }
 
             var conversation = await _db.Conversations
@@ -1022,60 +1310,65 @@ namespace PursuitHQ.API.Controllers
                     "NotConnected", "You are no longer connected with this person."));
             }
 
-            string storagePath;
-            string contentType;
-            var isImage = false;
-
-            await using (var upload = file.OpenReadStream())
-            {
-                if (looksLikeImage)
-                {
-                    try
-                    {
-                        // Decoded and re-encoded, which strips the EXIF a phone
-                        // photo carries and proves the file really is an image.
-                        // Only a file that survives this is ever marked safe to
-                        // render inline.
-                        var stored = await images.SaveSharedImageAsync(upload, ct);
-
-                        storagePath = stored.Path;
-                        contentType = stored.ContentType;
-                        isImage = true;
-                    }
-                    catch (InvalidImageException ex)
-                    {
-                        return BadRequest(new ApiErrorDto("InvalidImage", ex.Message));
-                    }
-                }
-                else
-                {
-                    storagePath = await _storage.SaveAsync(upload, file.FileName, ct);
-
-                    // Recorded for the download header only. It is never used to
-                    // decide whether something renders inline.
-                    contentType = "application/octet-stream";
-                }
-            }
-
             var message = new Message
             {
                 ConversationId = id,
                 SenderId = CurrentUserId,
                 Body = (body ?? string.Empty).Trim(),
                 Kind = MessageKind.Text,
-                SentAt = DateTime.UtcNow,
-                Attachments =
+                SentAt = DateTime.UtcNow
+            };
+
+            foreach (var file in files)
+            {
+                var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+                var looksLikeImage = ImageExtensions.Contains(extension);
+
+                string storagePath;
+                string contentType;
+                var isImage = false;
+
+                await using (var upload = file.OpenReadStream())
                 {
-                    new MessageAttachment
+                    if (looksLikeImage)
                     {
-                        StoragePath = storagePath,
-                        FileName = SafeName(file.FileName),
-                        ContentType = contentType,
-                        SizeBytes = file.Length,
-                        IsImage = isImage
+                        try
+                        {
+                            // Decoded and re-encoded, which strips the EXIF a
+                            // phone photo carries and proves the file really is
+                            // an image. Only a file that survives this is ever
+                            // marked safe to render inline.
+                            var stored = await images.SaveSharedImageAsync(upload, ct);
+
+                            storagePath = stored.Path;
+                            contentType = stored.ContentType;
+                            isImage = true;
+                        }
+                        catch (InvalidImageException ex)
+                        {
+                            return BadRequest(new ApiErrorDto(
+                                "InvalidImage", $"\"{file.FileName}\": {ex.Message}"));
+                        }
+                    }
+                    else
+                    {
+                        storagePath = await _storage.SaveAsync(upload, file.FileName, ct);
+
+                        // Recorded for the download header only. It is never
+                        // used to decide whether something renders inline.
+                        contentType = "application/octet-stream";
                     }
                 }
-            };
+
+                message.Attachments.Add(new MessageAttachment
+                {
+                    StoragePath = storagePath,
+                    FileName = SafeName(file.FileName),
+                    ContentType = contentType,
+                    SizeBytes = file.Length,
+                    IsImage = isImage
+                });
+            }
 
             _db.Messages.Add(message);
             conversation.LastMessageAt = message.SentAt;
@@ -1093,6 +1386,9 @@ namespace PursuitHQ.API.Controllers
             }
 
             await _db.SaveChangesAsync(ct);
+
+            await notifier.MessageSentAsync(id, CurrentUserId, ct);
+
             await _db.Entry(message).Reference(m => m.Sender).LoadAsync(ct);
 
             return Ok(ToDto(message));
@@ -1190,11 +1486,16 @@ namespace PursuitHQ.API.Controllers
             if (heir is not null) heir.Role = ConversationRole.Owner;
         }
 
-        private async Task<List<UnreadCount>> UnreadPerConversationAsync(CancellationToken ct) =>
+        // includeMuted is true for the conversation list, which marks a muted
+        // chat quietly but still marks it - muting means "stop shouting at me",
+        // not "hide that anything happened". It is false for the icon in the nav
+        // bar, where a muted chat must not light the dot at all.
+        private async Task<List<UnreadCount>> UnreadPerConversationAsync(
+            bool includeMuted, CancellationToken ct) =>
             await _db.ConversationMembers
                 .Where(m => m.UserId == CurrentUserId
                             && m.Status == MembershipStatus.Active
-                            && !m.IsMuted)
+                            && (includeMuted || !m.IsMuted))
                 .Select(m => new UnreadCount
                 {
                     ConversationId = m.ConversationId,
@@ -1274,6 +1575,26 @@ namespace PursuitHQ.API.Controllers
                 IsMuted = mine?.IsMuted ?? false,
                 MyRole = mine?.Role ?? ConversationRole.Member
             };
+        }
+
+        /// <summary>
+        /// A name for a conversation in search results.
+        ///
+        /// A direct chat has no name of its own, so it borrows the other
+        /// person's - which means finding them among the loaded members rather
+        /// than the title the list would have used.
+        /// </summary>
+        private string SearchTitle(Conversation? conversation)
+        {
+            if (conversation is null) return "Conversation";
+            if (conversation.IsGroup) return conversation.Name ?? "Group";
+
+            var other = conversation.Members
+                .FirstOrDefault(m => m.UserId != CurrentUserId && m.User is not null);
+
+            return other?.User is null
+                ? "Conversation"
+                : $"{other.User.FirstName} {other.User.LastName}".Trim();
         }
 
         private static string? Preview(Message? message) =>

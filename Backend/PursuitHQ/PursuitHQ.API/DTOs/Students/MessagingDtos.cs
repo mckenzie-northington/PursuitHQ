@@ -34,6 +34,10 @@ namespace PursuitHQ.API.DTOs.Students
 
         public int UnreadCount { get; set; }
         public bool IsMuted { get; set; }
+        public bool IsPinned { get; set; }
+
+        /// <summary>Drives the order of the pinned block. Null when unpinned.</summary>
+        public DateTime? PinnedAt { get; set; }
 
         /// <summary>The viewer's own role, which decides what the UI offers.</summary>
         public ConversationRole MyRole { get; set; }
@@ -78,6 +82,30 @@ namespace PursuitHQ.API.DTOs.Students
         /// decoded and re-encoded itself.
         /// </summary>
         public bool IsImage { get; set; }
+    }
+
+    /// <summary>One other person in the conversation, right now.</summary>
+    public class PresencePersonDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string FirstName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// How far they have read. The client compares this against each
+        /// message's SentAt rather than being told per message, which keeps this
+        /// one small response the same size whatever the history looks like.
+        /// </summary>
+        public DateTime? LastReadAt { get; set; }
+    }
+
+    /// <summary>
+    /// Who is typing and who has caught up - the two things that change far
+    /// faster than the messages themselves, so they are fetched on their own.
+    /// </summary>
+    public class ConversationPresenceDto
+    {
+        public List<PresencePersonDto> Typing { get; set; } = new();
+        public List<PresencePersonDto> Readers { get; set; } = new();
     }
 
     public class ReactDto
@@ -173,6 +201,24 @@ namespace PursuitHQ.API.DTOs.Students
     public class MuteDto
     {
         public bool Muted { get; set; }
+    }
+
+    public class PinDto
+    {
+        public bool Pinned { get; set; }
+    }
+
+    /// <summary>One message that matched a search, with enough to find it again.</summary>
+    public class MessageSearchHitDto
+    {
+        public int ConversationId { get; set; }
+        public string ConversationTitle { get; set; } = string.Empty;
+        public bool IsGroup { get; set; }
+
+        public int MessageId { get; set; }
+        public string SenderName { get; set; } = string.Empty;
+        public string Body { get; set; } = string.Empty;
+        public DateTime SentAt { get; set; }
     }
 
     /// <summary>Drives the dot on the messages icon.</summary>

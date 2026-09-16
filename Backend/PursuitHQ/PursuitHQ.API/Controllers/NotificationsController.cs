@@ -86,6 +86,8 @@ namespace PursuitHQ.API.Controllers
 
             preference.WeeklyDigestEnabled = dto.WeeklyDigestEnabled;
             preference.CreationConfirmationsEnabled = dto.CreationConfirmationsEnabled;
+            preference.MessageEmailsEnabled = dto.MessageEmailsEnabled;
+            preference.RequestEmailsEnabled = dto.RequestEmailsEnabled;
             preference.WeeklyDigestDay = (DayOfWeek)dto.WeeklyDigestDay;
             preference.WeeklyDigestTime = weeklyTime;
 
@@ -220,6 +222,8 @@ namespace PursuitHQ.API.Controllers
                 DailyDigestTime = p.DailyDigestTime.ToString("HH\\:mm", CultureInfo.InvariantCulture),
                 WeeklyDigestEnabled = p.WeeklyDigestEnabled,
                 CreationConfirmationsEnabled = p.CreationConfirmationsEnabled,
+                MessageEmailsEnabled = p.MessageEmailsEnabled,
+                RequestEmailsEnabled = p.RequestEmailsEnabled,
                 WeeklyDigestDay = (int)p.WeeklyDigestDay,
                 WeeklyDigestTime = p.WeeklyDigestTime.ToString("HH\\:mm", CultureInfo.InvariantCulture),
                 TimeZone = string.IsNullOrWhiteSpace(timeZone) ? "America/New_York" : timeZone,

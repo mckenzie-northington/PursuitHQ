@@ -10,29 +10,35 @@ The full plan for PursuitHQ — what it does, how it's built, and what it takes 
 | [Requirements.md](Requirements.md) | Purpose, target users, scope, user stories, functional and non-functional requirements, success criteria |
 | [Features.md](Features.md) | Every feature in detail: behavior, acceptance criteria, entities involved, and which release it lands in |
 | [DatabaseDesign.md](DatabaseDesign.md) | Every entity with its fields, the UML class diagram, the DbContext, and the build order |
-| [ApiDesign.md](ApiDesign.md) | Every REST endpoint, conventions, status codes, error shape, pagination |
+| [ApiDesign.md](ApiDesign.md) | Every REST endpoint, conventions, status codes, error shape, what is and is not paginated |
 | [Architecture.md](Architecture.md) | System diagram, backend layers, project structure, file storage design, AI service design, frontend routes, configuration |
 | [Security.md](Security.md) | Authentication, data isolation, upload security, secrets, privacy, pre-launch checklist |
 | [Deployment.md](Deployment.md) | Hosting, environment variables, migrations, CI/CD, local setup, monitoring, launch checklist |
-| [Roadmap.md](Roadmap.md) | Phased build plan from setup through analytics, with a definition of done |
+| [Roadmap.md](Roadmap.md) | Phased build plan from setup through deployment, with a definition of done |
 
 ## Quick summary
 
-PursuitHQ is a student success platform: courses and a calendar covering classes and other activities, assignments, per-course study materials (files, folders, and typed notes), AI study tools that turn those materials into flashcards, practice tests and study guides plus a per-course tutor you can ask questions, an AI study planner, email reminders for deadlines and schedules, an AI-assisted resume builder, and goals/skills/certifications.
+PursuitHQ is a student success platform: courses and a calendar covering classes, assignments, reminders and other activities, per-course study materials (files, folders, and typed notes), AI study tools that turn those materials into flashcards, practice tests and study guides plus a per-course tutor you can ask questions, email reminders for deadlines and schedules, a resume builder with AI review and a resume-to-posting matcher, and — built in September 2026 — a student directory, connections, and direct and group messaging with reactions, attachments, search, typing indicators and read receipts.
 
-**Stack:** ASP.NET Core Web API on .NET 10 · Entity Framework Core · PostgreSQL · Next.js · Tailwind CSS
+Goals, skills and certifications are entities and tables with no code on top of them yet; that is Phase 8, and the largest missing feature.
+
+**Stack:** ASP.NET Core Web API on .NET 10 · Entity Framework Core · PostgreSQL · Next.js 16 · Tailwind CSS 4
+
+**No automated tests.** There is no test project in the solution and nothing automated anywhere; everything has been verified by hand. See `Roadmap.md`, "What is actually next", for where that matters most.
 
 ## Open decisions
 
 These are recorded so they don't get lost. Update this list as they're settled.
 
 1. ~~**AI provider**~~ — **Decided: Google Gemini** (`gemini-3.8-flash`), behind an `IAiService` interface. **Billing is now enabled**, which lifted the free tier's 20-requests-per-minute ceiling; cost is roughly a penny per request. See `Architecture.md` §5d and `START-HERE.md` §5a. **Open sub-item:** check whether the paid tier still trains on submitted content before anyone else uses the AI features — that was true of the free tier and is a launch blocker either way, needing a privacy disclosure.
-2. ~~**Job-board API**~~ — **Closed: no longer needed.** Job search and the application tracker were built and then removed in September 2026. Adzuna's listings were reliably stale — postings had closed by the time you clicked through — and maintaining a job feed was taking time from the study features. `Roadmap.md` §5 records what was deleted and what was deliberately kept so it can return.
-3. **Time zones** — **Decided for now: stored `DateTime` values are wall-clock times, not instants.** Nothing is converted in either direction; a 9 AM class is 9 AM. This keeps the calendar correct while the app runs on one laptop. It leaves one known gap: "overdue" compares against the server's clock and will be wrong on a UTC host, so `ApplicationUser.TimeZone` has to be wired in before deployment. See `Roadmap.md` §3a.
-4. ~~**Account recovery**~~ — **Built.** Request a link, set a new password, lockout cleared on success; tokens expire after an hour. The only missing piece is sending the email, which Phase 3b supplies — until then the link is logged by the API and shown on screen in development. Related decision: `forgot-password` reveals whether an account exists **only** in Development, because in production that would let anyone enumerate who has signed up.
+2. ~~**Job-board API**~~ — **Closed: no longer needed.** Job search and the application tracker were built and then removed in September 2026. Adzuna's listings were reliably stale — postings had closed by the time you clicked through — and maintaining a job feed was taking time from the study features. `Roadmap.md` §5 records what was deleted and what was deliberately kept so it can return: the resume matcher and saved jobs both survived.
+3. ~~**Time zones**~~ — **Settled and built.** Stored `DateTime` values are wall-clock times, not instants: a 9 AM class is 9 AM, and nothing is converted in either direction. What makes that safe off one laptop is `ApplicationUser.TimeZone` — an IANA zone set at registration, changeable in settings, and turned into the student's local "now" by `IUserClock`. Every "is this overdue" and every reminder is asked against *their* wall clock, not the server's. An unrecognised zone id falls back to server time with a warning rather than throwing, because Windows and Linux do not agree on every name.
+4. ~~**Account recovery**~~ — **Built, including the email.** Request a link, set a new password, lockout cleared on success; tokens expire after an hour and work once. The link is emailed through Resend; with no API key configured `ConsoleEmailService` prints it to the API terminal instead, and in Development it also comes back on the response so a reset can be tested without a mailbox. Related decision: `forgot-password` reveals whether an account exists **only** in Development, because in production that would let anyone enumerate who has signed up.
 5. **Email sending domain** — Resend's free tier covers the volume; a custom sending domain needs DNS records on a domain you control.
 6. **Cold starts** — accept Render free's ~1 minute wake-up, keep the instance warm with the reminder cron, or pay ~$7/month once real users are on it.
 7. **Dark mode is palette remapping, not per-element theming.** One CSS file rewrites the app's small colour palette when `.dark` is set, rather than a `dark:` variant on every class in fourteen files. It holds as long as `bg-white` always means "a surface". The first page that needs something to stay white in dark mode is the signal to revisit this. See the note at the top of `globals.css`.
+8. **Messaging polls; it does not push.** Four timers — the conversation list every 15 seconds, the open thread every 5, typing and read receipts every 2.5, and the unread badge in `useUnread` — stand in for a real-time connection, because polling is a `setInterval` and SignalR is a hub, a client library, a connection lifecycle and a deployment concern. Every badge already reads from `useUnread`, so swapping in SignalR later touches a handful of files rather than every component that shows a number. Revisit when the request volume starts to matter or a five-second delay starts to feel wrong.
+9. **Uploaded files are still on local disk.** `LocalFileStorageService` writes under `PursuitHQ.API/storage`, which does not survive a redeploy on a hosted container. S3-compatible storage behind the existing `IFileStorageService` is a hard blocker for deployment, not a nice-to-have — see `Deployment.md`.
 
 ## Keeping these current
 

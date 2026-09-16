@@ -1,10 +1,14 @@
 ﻿using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi;
 using PursuitHQ.API.Data;
+using PursuitHQ.API.DTOs;
 using PursuitHQ.API.Models;
 using PursuitHQ.API.Services;
 
@@ -168,6 +172,14 @@ builder.Services.AddSingleton<IEmailQueue>(sp => sp.GetRequiredService<EmailQueu
 builder.Services.AddHostedService<EmailQueueWorker>();
 builder.Services.AddScoped<ICreationNotifier, CreationNotifier>();
 
+// Same idea for messages: queued after the message is safely saved, so the
+// send never waits on an email provider and never fails because of one.
+builder.Services.AddScoped<IMessageNotifier, MessageNotifier>();
+
+// Connection requests and group invitations. Same queue, no throttle - these
+// are single events that need an answer, not a stream.
+builder.Services.AddScoped<IRequestNotifier, RequestNotifier>();
+
 // Who is owed a reminder, and the record that stops it being sent twice.
 // Scoped, because it holds a DbContext.
 builder.Services.AddScoped<INotificationService, NotificationService>();
@@ -223,20 +235,74 @@ builder.Services.AddSwaggerGen(options =>
 // ---------------------------------------------------------------------------
 // CORS - the Next.js frontend will need this
 // ---------------------------------------------------------------------------
+// Read from configuration so a deployed frontend can be allowed without a code
+// change. Both shapes work, because hosting panels differ: one comma-separated
+// value (Cors__AllowedOrigins="https://a.com,https://www.a.com") or indexed keys
+// (Cors__AllowedOrigins__0, __1). Localhost only when nothing is configured.
+var originList = builder.Configuration["Cors:AllowedOrigins"];
+
+var allowedOrigins = string.IsNullOrWhiteSpace(originList)
+    ? builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    : originList.Split(',', StringSplitOptions.RemoveEmptyEntries
+                          | StringSplitOptions.TrimEntries);
+
+if (allowedOrigins is null || allowedOrigins.Length == 0)
+{
+    allowedOrigins = new[] { "http://localhost:3000" };
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
-        policy.WithOrigins("http://localhost:3000")
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
 
+// Two checks on purpose.
+//
+// "/health" answers without touching anything. It is what the keep-warm ping
+// hits every few minutes, and it must stay cheap: a health check that queries
+// the database would keep the database awake too, and on a plan that bills by
+// compute-hour and sleeps when idle, that ping alone would spend the monthly
+// allowance on proving the app is alive.
+//
+// "/health/ready" does check the database, for when you actually want to know.
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "ready" });
+
 var app = builder.Build();
+
+// First in the pipeline, before anything reads the scheme or the client address.
+//
+// A host like Render terminates TLS at its edge and forwards plain HTTP to the
+// container. Without this the app believes every request arrived over HTTP,
+// UseHttpsRedirection redirects it, the edge forwards the retry as HTTP again,
+// and the browser gives up on a redirect loop. The Known* lists are cleared
+// because they default to loopback only, which would ignore the proxy's headers
+// entirely - safe here because the only route in is the host's own proxy.
+var forwarded = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+};
+
+forwarded.KnownNetworks.Clear();
+forwarded.KnownProxies.Clear();
+
+app.UseForwardedHeaders(forwarded);
 
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+}
+else
+{
+    // In production an unhandled exception becomes the same error shape as
+    // every other failure, rather than whatever the framework would otherwise
+    // return - and never a stack trace.
+    app.UseExceptionHandler("/error");
+    app.UseHsts();
 }
 
 app.UseHttpsRedirection();
@@ -248,5 +314,20 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    // Nothing tagged: liveness only. See the comment where these are registered.
+    Predicate = _ => false
+});
+
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
+
+app.Map("/error", () => Results.Json(
+    new ApiErrorDto("ServerError", "Something went wrong. Please try again."),
+    statusCode: StatusCodes.Status500InternalServerError));
 
 app.Run();

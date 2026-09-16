@@ -1,14 +1,15 @@
 # PursuitHQ — Technical & Database Design
 
-This document describes every class (entity) in PursuitHQ's backend, how they relate to each other, and the supporting layers (DTOs, Services, Data) that sit around them. It reflects the current planned feature set: authentication, academic planning, per-course study materials (files, folders, and typed notes), AI study tools (flashcards, quizzes, study guides), email reminders, internship/job search and tracking, an AI-assisted resume builder, an AI-assisted study planner, and career growth tracking.
+This document describes every class (entity) in PursuitHQ's backend, how they relate to each other, and the supporting layers (DTOs, Services, Data) that sit around them. It reflects the current planned feature set: authentication, academic planning, per-course study materials (files, folders, and typed notes), AI study tools (flashcards, quizzes, study guides), email reminders, internship/job search and tracking, an AI-assisted resume builder, an AI-assisted study planner, career growth tracking, and the social side of the app: student connections, direct chats, and group chats.
 
 ## 1. Entity Descriptions
 
 ### ApplicationUser *(extends ASP.NET Core Identity's `IdentityUser`)*
 
-> Also carries **`SavedColors`**, a comma-separated list of hex values — the
-> palette the student has built up, offered in both the event dialog and the
-> course form.
+> **`SavedColors`** is a comma-separated list of hex values — the palette the
+> student has built up, offered in both the event dialog and the course form.
+> A joined string rather than a table of its own: it is short, ordered, always
+> read and written whole, and never queried against.
 
 
 The central identity for every student account. Authentication (registration, login, password hashing) is handled by ASP.NET Core Identity itself — this class only adds the extra fields PursuitHQ needs.
@@ -20,6 +21,16 @@ The central identity for every student account. Authentication (registration, lo
 | PasswordHash | string | Provided by Identity, managed automatically |
 | FirstName | string | Custom addition |
 | LastName | string | Custom addition |
+| Major | string? | |
+| School | string? | Max length 200 |
+| GraduationYear | int? | |
+| EducationLevel | enum (`EducationLevel`: NotSet, HighSchool, College, University, Other) | Stored as its int, so the numbers are part of the data — append, never renumber |
+| IsDiscoverable | bool | Whether this student turns up when another one searches. **False by default** — being findable by strangers is not something to be enrolled in by signing up for a planner |
+| PhotoPath | string? | Storage key for the profile photo, never sent to a client; the photo is served through an endpoint that checks who is asking, not from a public folder |
+| PhotoContentType | string? | |
+| TimeZone | string | IANA id, default `America/New_York`. See Section 4a — this is what "has it passed yet" is asked against |
+| SavedColors | string? | Comma-separated hex values, max length 500 |
+| CreatedAt | DateTime | |
 
 Every other entity below that belongs to a specific student has a `UserId` (string) foreign key pointing at `ApplicationUser.Id`.
 
@@ -37,8 +48,11 @@ Every other entity below that belongs to a specific student has a `UserId` (stri
 | Name | string | |
 | Professor | string | |
 | Semester | string | e.g. "Fall 2026" |
+| StartDate | DateOnly? | First day the course meets |
+| EndDate | DateOnly? | Last day it meets; bounds the weekly expansion on the calendar |
 | CreditHours | int? | Optional |
 | ColorHex | string? | Optional, used to color-code the calendar |
+| CreatedAt | DateTime | |
 
 ### ClassSchedule
 
@@ -65,11 +79,13 @@ Anything on a student's calendar that is not a class meeting, an assignment due 
 | Description | string? | |
 | StartDateTime | DateTime | |
 | EndDateTime | DateTime | |
+| IsAllDay | bool | True for events with no meaningful time of day, such as "Spring break". The times are still stored — midnight to 23:59:59 on the last day — so range queries need no special case |
 | Location | string? | |
 | EventType | enum (`EventType`: Work, Club, Appointment, Personal, Other) | |
 | IsRecurring | bool | |
 | RecurrenceRule | string? | iCal RRULE string, e.g. `FREQ=WEEKLY;BYDAY=TU,TH` |
 | ColorHex | string? | |
+| CreatedAt | DateTime | |
 
 The calendar view is the union of four sources: `ClassSchedule` (recurring class times), `Assignment` (due dates), `StudySession` (planned study blocks), and `CalendarEvent` (everything else).
 
@@ -80,9 +96,11 @@ The calendar view is the union of four sources: `ClassSchedule` (recurring class
 | Id | int | |
 | CourseId | int | FK → Course |
 | Title | string | |
-| DueDate | DateTime | |
+| Description | string? | |
+| DueDate | DateTime | Indexed |
 | Status | enum (`AssignmentStatus`: NotStarted, InProgress, Completed) | |
-| Grade | string? | Optional, filled in after graded |
+| Grade | string? | Free text on purpose, e.g. "94" or "A-"; filled in after grading |
+| CreatedAt | DateTime | |
 
 ### MaterialFolder
 
@@ -137,15 +155,29 @@ One row per student controlling whether and when reminders are emailed. Created 
 |---|---|---|
 | Id | int | |
 | UserId | string | FK -> ApplicationUser, unique |
-| EmailEnabled | bool | Master on/off switch |
+| EmailEnabled | bool | Master switch. When false, nothing is ever emailed |
 | AssignmentRemindersEnabled | bool | |
-| AssignmentReminderHoursBefore | int | e.g. 24 or 48 hours before a due date |
+| AssignmentReminderHours | string | `character varying(60)`. Comma-separated hours before the due date, largest first — `"168,24"` is a week ahead, and again the day before |
 | EventRemindersEnabled | bool | Reminders for calendar events and classes |
 | EventReminderMinutesBefore | int | e.g. 30 minutes before |
 | DailyDigestEnabled | bool | A single morning summary email |
 | DailyDigestTime | TimeOnly | Local time to send the digest, e.g. 07:00 |
-| WeeklyDigestEnabled | bool | Sunday-evening week-ahead summary |
+| WeeklyDigestEnabled | bool | Week-ahead summary |
+| WeeklyDigestDay | enum (`DayOfWeek`) | Which day it goes out; Sunday by default, but Monday suits people who would rather not think about the week until it starts |
+| WeeklyDigestTime | TimeOnly | Local time to send it, e.g. 18:00 |
+| CreationConfirmationsEnabled | bool | Email a confirmation when a course, assignment or event is added. **Off by default** — it is the only mail here not tied to a deadline, and one per record adds up fast |
+| MessageEmailsEnabled | bool | Email when somebody messages you. **On by default.** The email names the sender and the group, never the message itself — a mail provider is a third party, and what two students said to each other is not its business |
+| RequestEmailsEnabled | bool | Email when another student asks to connect, or invites you to a group. **On by default** — an invitation nobody sees is an invitation nobody accepts |
 | TimeZone | string | IANA id, e.g. `America/New_York` — required so reminders arrive at the right local time |
+
+*The reminder-hours list is a string, not a table.* It is written whole, read
+whole, and never queried across. Read it with `ReminderOffsets.Parse` rather than
+splitting it at the call site: the bounds (1 to 336 hours), the cap (4 entries)
+and the largest-first ordering all live in one place, and the scheduler walks the
+list in that order to work out which reminder an assignment is currently due for.
+Parsing is forgiving on purpose — a row written by an older version should cost
+one student one odd setting, not throw and take down the reminder run for
+everybody else.
 
 ### Notification
 
@@ -165,6 +197,27 @@ A record of every email actually sent. Prevents duplicate sends and gives the st
 
 Note: the email body is not stored, only the subject — bodies can contain assignment titles and other private content, and storing them adds risk without adding value.
 
+### Reminder
+
+A one-off thing to do on a given day: "email advisor", "buy lab goggles".
+
+Deliberately not a `CalendarEvent`. An event occupies a slot and has a start and
+an end; a reminder is a line you tick off, with a day attached and no time.
+Bolting a "this one is really a to-do" flag onto events would leave every query
+about events checking whether it meant this one.
+
+| Property | Type | Notes |
+|---|---|---|
+| Id | int | |
+| UserId | string | FK -> ApplicationUser |
+| Title | string | |
+| Notes | string? | |
+| Date | DateOnly | A reminder belongs to a day rather than a moment, which also sidesteps the wall-clock converter in Section 4a entirely |
+| IsCompleted | bool | |
+| CreatedAt | DateTime | |
+
+Indexed on (`UserId`, `Date`).
+
 ### JobApplication *(covers both internships and full-time/part-time jobs)*
 
 | Property | Type | Notes |
@@ -175,11 +228,14 @@ Note: the email body is not stored, only the subject — bodies can contain assi
 | Role | string | |
 | Type | enum (`JobType`: Internship, PartTime, FullTime) | |
 | Status | enum (`ApplicationStatus`: Saved, Applied, Interview, Offer, Rejected) | |
-| AppliedDate | DateTime | |
+| AppliedDate | DateTime? | Null while the row is only Saved |
 | Notes | string? | |
 | Source | enum (`ApplicationSource`: Manual, Search) | How the application entered the tracker |
 | ExternalJobId | string? | Id from the job-search provider, if sourced from search |
 | SourceUrl | string? | Direct link to the original posting, used by the "Apply" button |
+| CreatedAt | DateTime | |
+
+Indexed on (`UserId`, `Status`).
 
 ### Resume
 
@@ -192,6 +248,34 @@ One record per resume version a student maintains. Content is stored as a single
 | Title | string | e.g. "Software Engineering Resume" |
 | Content | string (JSON or structured text) | Sections: experience, education, skills, projects, etc. |
 | LastUpdated | DateTime | |
+| CreatedAt | DateTime | |
+
+### SavedJob
+
+A job posting the student kept, with the score their resume got against it.
+
+| Property | Type | Notes |
+|---|---|---|
+| Id | int | |
+| UserId | string | FK -> ApplicationUser |
+| Title | string | |
+| Company | string? | |
+| Url | string? | Where it came from, when a link was used rather than pasted text |
+| PostingText | string | The posting itself, as it was read |
+| Score | int | The percentage at the moment it was saved |
+| MatchJson | string | The whole match — requirements, evidence, suggestions — as JSON |
+| ResumeId | int? | FK -> Resume, `SetNull` |
+| Notes | string? | |
+| SavedAt | DateTime | |
+
+Indexed on (`UserId`, `SavedAt`).
+
+*The posting text is stored alongside the link on purpose.* Postings come down
+within weeks of a role closing, and without the text there is no way to see what
+a saved score was measuring, or to run it again after editing the resume. For the
+same reason `ResumeId` is `SetNull` rather than `Cascade`: the score was real when
+it was recorded, and losing a whole saved job because a resume was tidied up
+would be the wrong trade.
 
 ### StudySession
 
@@ -207,6 +291,9 @@ One record per resume version a student maintains. Content is stored as a single
 | Status | enum (`StudySessionStatus`: Planned, Completed, Skipped) | |
 | Notes | string? | |
 | IsAiGenerated | bool | True if created by the AI study planner rather than the student |
+| CreatedAt | DateTime | |
+
+Indexed on (`UserId`, `ScheduledDate`).
 
 ### FlashcardDeck / Flashcard
 
@@ -288,10 +375,11 @@ An AI-generated practice quiz and the student's attempts at it.
 | Property | Type | Notes |
 |---|---|---|
 | Id | int | |
-| AttemptId | int | FK -> QuizAttempt |
-| QuestionId | int | FK -> QuizQuestion |
+| AttemptId | int | FK -> QuizAttempt, `Cascade` |
+| QuestionId | int | FK -> QuizQuestion, `Restrict` — deleting a question must not wipe historical attempt data |
 | GivenAnswer | string | |
 | IsCorrect | bool | |
+| Feedback | string? | Set only for written answers, which are judged by AI rather than compared |
 
 ### StudyConversation / StudyMessage
 
@@ -342,8 +430,11 @@ A condensed, structured summary generated from one or more uploaded files (e.g. 
 | Id | int | |
 | UserId | string | FK → ApplicationUser |
 | Title | string | |
+| Description | string? | |
 | Progress | int | 0–100 |
-| TargetDate | DateTime | |
+| TargetDate | DateTime? | Optional |
+| IsCompleted | bool | |
+| CreatedAt | DateTime | |
 
 ### Skill
 
@@ -353,6 +444,7 @@ A condensed, structured summary generated from one or more uploaded files (e.g. 
 | UserId | string | FK → ApplicationUser |
 | Name | string | |
 | Level | enum (`SkillLevel`: Beginner, Intermediate, Advanced) | |
+| CreatedAt | DateTime | |
 
 ### Certification
 
@@ -361,7 +453,195 @@ A condensed, structured summary generated from one or more uploaded files (e.g. 
 | Id | int | |
 | UserId | string | FK → ApplicationUser |
 | Name | string | |
+| Issuer | string? | |
 | DateEarned | DateTime | |
+| ExpiresOn | DateTime? | |
+| CredentialUrl | string? | |
+| CreatedAt | DateTime | |
+
+### Connection
+
+The relationship between two students. This row is what unlocks everything
+social in the app: seeing a full profile, starting a chat, being added to a
+group. Nothing checks "are they a student" and stops there — it checks this.
+
+| Property | Type | Notes |
+|---|---|---|
+| Id | int | |
+| RequesterId | string | FK -> ApplicationUser, `Cascade`. Who sent the request |
+| AddresseeId | string | FK -> ApplicationUser, `Cascade`. Who has to answer it |
+| Status | enum (`ConnectionStatus`: Pending, Accepted, Declined, Blocked) | |
+| BlockedById | string? | Who pressed block, which is not always the requester — blocking is one-sided, so the blocked person should see nothing unusual while the blocker keeps the ability to undo it |
+| Note | string? | A short line sent with the request — "we met in CS 201". The one piece of text a stranger can put in front of someone who has not accepted them, which is why it is the only one |
+| CreatedAt | DateTime | |
+| RespondedAt | DateTime? | |
+
+Indexes: **unique** on (`RequesterId`, `AddresseeId`) — one row per pair,
+whichever way round it was created, so "are they connected" is never ambiguous;
+and (`AddresseeId`, `Status`), which drives the incoming-requests list and the
+unread dot.
+
+*Blocking is a status on the same row, not a list of its own.* "What is the
+state between these two people" then has one lookup with one answer — two places
+to check is how a blocked person ends up still able to message.
+
+Direction matters while a request is pending and stops mattering once it is
+accepted, so every lookup has to consider the pair in both orders.
+`ConnectionService` is the only place that should be doing that.
+
+### Conversation
+
+A direct chat or a group chat. The only difference between the two is `IsGroup`
+and how membership is allowed to change.
+
+| Property | Type | Notes |
+|---|---|---|
+| Id | int | |
+| IsGroup | bool | |
+| Name | string? | Groups only — a direct chat is named after the other person |
+| Description | string? | Groups only |
+| PhotoPath | string? | Storage key for the group picture, never sent to a client |
+| PhotoContentType | string? | |
+| CreatedById | string | Who made it. Kept even after they hand ownership on or leave — it is history, not permission; the Owner role is what grants anything |
+| CreatedAt | DateTime | |
+| LastMessageAt | DateTime | Denormalised from `Message.SentAt` |
+
+The group picture goes through the same pipeline as a profile photo, which
+re-encodes it — so it cannot carry the GPS coordinates of wherever it was taken
+into a room of people who were not there.
+
+*`LastMessageAt` is duplicated on purpose.* The conversation list can then be
+ordered and paged without touching `Messages`. It is the most-run query in the
+feature — it runs on every poll for the unread dot — and the alternative is a
+correlated `MAX(SentAt)` per conversation.
+
+### ConversationMember
+
+One person's place in one conversation. Every read and write of a message checks
+for an `Active` row here. **That check is the whole security model for
+messaging:** unlike the rest of PursuitHQ, where a missing filter shows you an
+error, a missing membership check quietly shows you someone else's conversation.
+
+| Property | Type | Notes |
+|---|---|---|
+| Id | int | |
+| ConversationId | int | FK -> Conversation, `Cascade` |
+| UserId | string | FK -> ApplicationUser, `Cascade` |
+| Role | enum (`ConversationRole`: Member = 0, Admin = 1, Owner = 2) | Ordered so numeric comparison works |
+| Status | enum (`MembershipStatus`: Invited, Active, Left) | One row through the whole lifecycle |
+| InvitedById | string? | Who asked them in. Shown on the invitation |
+| JoinedAt | DateTime | |
+| LastReadAt | DateTime? | Everything after this is unread. Null means nothing read yet |
+| IsMuted | bool | Stops this conversation counting toward the unread dot. Per member, not per conversation — muting a busy group must not quieten it for everybody else |
+| IsPinned | bool | Keeps this conversation at the top of the list. Per member, like muting |
+| PinnedAt | DateTime? | When it was pinned; null when it is not. Pinned chats are ordered by this, earliest first, so a new pin lands underneath the ones already there |
+| LastTypingAt | DateTime? | Last time this person was seen typing here |
+| LastMessageEmailAt | DateTime? | When this member was last emailed about a message here |
+| LeftAt | DateTime? | When they left or were removed. `Status` is what the code checks; this is for showing "left on the 3rd" and for ordering rejoins |
+
+Indexes: **unique** on (`ConversationId`, `UserId`); plus (`UserId`, `LeftAt`)
+and (`UserId`, `Status`), both run on every poll of the conversation list.
+
+*Invitations are folded into membership rather than given a table of their own.*
+That is what keeps the unique index on (`ConversationId`, `UserId`) meaningful:
+nobody can hold an invitation and a membership at the same time and end up in a
+group twice. Rejoining a group clears `LeftAt` rather than adding a second row.
+
+*`ConversationRole` is ordered so a numeric comparison works* — anything above
+`Member` can invite and remove, and only `Owner` can change roles. There is
+exactly one Owner per group and it cannot be removed by anybody, which is what
+stops a group reaching a state where nothing can be administered. **The values
+are stored, so they must never be renumbered.**
+
+*`PinnedAt` orders pins instead of the last message.* Ordering pinned chats by
+their latest message would let any of them jump over the others the moment
+somebody typed, which makes a deliberately arranged list rearrange itself behind
+your back.
+
+*`LastTypingAt` is a timestamp rather than a flag* so it expires on its own. A
+boolean would stay true forever the moment somebody closed the tab mid-word.
+
+*`LastMessageEmailAt` is the whole email throttle.* A chat is a back-and-forth,
+and without a record of the last one a five-minute conversation would put thirty
+emails in somebody's inbox. It is stamped whenever a member qualified for an
+email, sent or not, so the same rows are not re-examined on every message.
+
+### Message
+
+| Property | Type | Notes |
+|---|---|---|
+| Id | int | |
+| ConversationId | int | FK -> Conversation, `Cascade` |
+| SenderId | string | FK -> ApplicationUser, `Restrict` |
+| Body | string | |
+| Kind | enum (`MessageKind`: Text, System) | |
+| ReplyToMessageId | int? | Self-referencing FK -> Message, `Restrict`. The message this one answers |
+| SentAt | DateTime | |
+| EditedAt | DateTime? | Set when the text has been changed since sending, and shown in the UI — an edit that leaves no trace is a way to rewrite what somebody remembers being said |
+| DeletedAt | DateTime? | Soft delete: the row stays, the body is cleared, the UI says so |
+
+Indexed on (`ConversationId`, `Id`) — messages are paged newest-first by id
+within a conversation.
+
+*`SenderId` is `Restrict`, not `Cascade`, deliberately.* Deleting an account must
+not silently erase that person's half of everyone else's group conversations,
+leaving the rest unreadable. `ReplyToMessageId` is `Restrict` for the same shape
+of reason: deleting one message must not take every answer to it with it, and
+messages are soft-deleted here anyway.
+
+*System messages are stored, not derived.* "Sarah added Marcus", "Marcus left" —
+they belong in the timeline in the order they happened. Without them people
+appear and vanish from a group with no explanation, which reads as a bug.
+
+### MessageReaction
+
+One person's one emoji on one message.
+
+| Property | Type | Notes |
+|---|---|---|
+| Id | int | |
+| MessageId | int | FK -> Message, `Cascade` |
+| UserId | string | FK -> ApplicationUser, `Restrict` |
+| Emoji | string | The emoji itself, not a name |
+| CreatedAt | DateTime | |
+
+Indexed **unique** on (`MessageId`, `UserId`, `Emoji`).
+
+*A row per person per emoji rather than a count*, because the interesting
+question is not "how many thumbs up" but "did I already react, and who else
+did" — and a count cannot answer either. The unique index is what makes the
+toggle safe: double-clicking cannot leave two of the same reaction behind.
+
+The emoji is stored rather than a name: a lot of emoji are several code points
+once skin tones and joiners are involved, and storing a name would mean
+maintaining a lookup table forever. `UserId` is `Restrict` for the same reason as
+`Message.Sender` — deleting an account should not silently rewrite what everybody
+else reacted to.
+
+### MessageAttachment
+
+A file or image sent with a message.
+
+| Property | Type | Notes |
+|---|---|---|
+| Id | int | |
+| MessageId | int | FK -> Message, `Cascade` |
+| StoragePath | string | Storage key. Never sent to a client |
+| FileName | string | What the sender called it, shown in the UI |
+| ContentType | string | |
+| SizeBytes | long | |
+| IsImage | bool | Whether this is safe to render in an `img` tag |
+
+*Its own table rather than columns on `Message`*, because one message can carry
+several and because a message with no attachment — nearly all of them — should
+not pay for six unused columns.
+
+`FileName` is stored separately from `StoragePath` on purpose: the key is a GUID
+so nothing about the file system can be guessed from a name, and the name is only
+ever displayed, never used to open anything. `IsImage` is set only by the server,
+and only for files it decoded and re-encoded itself — a content type from an
+upload is a claim, not a fact, and rendering an attacker's claim inline is how a
+chat becomes an XSS hole.
 
 ## 2. UML Class Diagrams
 
@@ -635,6 +915,98 @@ classDiagram
     QuizQuestion "1" --> "*" QuizAnswer : answered by
 ```
 
+### 2.3 Students, connections, and messaging
+
+```mermaid
+classDiagram
+    class ApplicationUser {
+        +string Id
+        +string FirstName
+        +string LastName
+        +bool IsDiscoverable
+        +string? PhotoPath
+    }
+
+    class Connection {
+        +int Id
+        +string RequesterId
+        +string AddresseeId
+        +ConnectionStatus Status
+        +string? BlockedById
+        +string? Note
+        +DateTime CreatedAt
+        +DateTime? RespondedAt
+    }
+
+    class Conversation {
+        +int Id
+        +bool IsGroup
+        +string? Name
+        +string? Description
+        +string? PhotoPath
+        +string CreatedById
+        +DateTime CreatedAt
+        +DateTime LastMessageAt
+    }
+
+    class ConversationMember {
+        +int Id
+        +int ConversationId
+        +string UserId
+        +ConversationRole Role
+        +MembershipStatus Status
+        +string? InvitedById
+        +DateTime? LastReadAt
+        +bool IsMuted
+        +bool IsPinned
+        +DateTime? PinnedAt
+        +DateTime? LastTypingAt
+        +DateTime? LastMessageEmailAt
+        +DateTime? LeftAt
+    }
+
+    class Message {
+        +int Id
+        +int ConversationId
+        +string SenderId
+        +string Body
+        +MessageKind Kind
+        +int? ReplyToMessageId
+        +DateTime SentAt
+        +DateTime? EditedAt
+        +DateTime? DeletedAt
+    }
+
+    class MessageReaction {
+        +int Id
+        +int MessageId
+        +string UserId
+        +string Emoji
+        +DateTime CreatedAt
+    }
+
+    class MessageAttachment {
+        +int Id
+        +int MessageId
+        +string StoragePath
+        +string FileName
+        +string ContentType
+        +long SizeBytes
+        +bool IsImage
+    }
+
+    ApplicationUser "1" --> "*" Connection : requests
+    ApplicationUser "1" --> "*" Connection : answers
+    ApplicationUser "1" --> "*" ConversationMember : belongs as
+    Conversation "1" --> "*" ConversationMember : has
+    Conversation "1" --> "*" Message : holds
+    ApplicationUser "1" --> "*" Message : sends
+    Message "0..1" --> "*" Message : replied to by
+    Message "1" --> "*" MessageReaction : gathers
+    Message "1" --> "*" MessageAttachment : carries
+    ApplicationUser "1" --> "*" MessageReaction : reacts with
+```
+
 ## 3. DTO Pattern
 
 Controllers should never accept or return the raw EF Core entities directly — that risks exposing internal fields (like `UserId`, which should always come from the authenticated user's token, never from client input) and makes it hard to change the database without breaking the API contract.
@@ -673,10 +1045,20 @@ Notice `UserId` never appears in either DTO — the controller reads the current
 | `StudyToolAiService` | Generates flashcards, quiz questions, and study guides from extracted text |
 | `IEmailService` / `ResendEmailService` | Sends reminder and digest emails |
 | `NotificationService` | Decides who is due a reminder, renders the email, records it in `Notification` |
-| `JobSearchService` | Queries the external job-board API and maps results into search hits |
-| `StudyPlannerAiService` | Reads a student's `Course`, `Assignment`, and existing `StudySession` data; generates suggested `StudySession` rows (`IsAiGenerated = true`) |
+| `IAiService` / `GeminiAiService` | The one AI client the study, resume and chat services go through, with `IAiUsageLimiter` in front of it |
+| `IStudyChatService` / `StudyChatService` | Runs the per-course study chat and the artifacts its replies produce |
+| `JobDescriptionFetcher` | Fetches a posting from a URL so it can be scored against a resume |
+| `JobSearchService` *(planned)* | Queries an external job-board API and maps results into search hits |
+| `StudyPlannerAiService` *(planned)* | Would read a student's `Course`, `Assignment`, and existing `StudySession` data and generate suggested `StudySession` rows (`IsAiGenerated = true`) |
+| `ConnectionService` | The only place that looks a `Connection` up in both directions; everything social checks it before allowing a profile view, a chat, or a group invite |
+| `ProfilePhotoService` | Decodes and re-encodes profile and group pictures, which is what strips EXIF (including GPS) from them |
+| `MessageNotifier` | Decides who is owed a message email, honouring `MessageEmailsEnabled` and the `ConversationMember.LastMessageEmailAt` throttle |
+| `RequestNotifier` | Emails connection requests and group invitations, honouring `RequestEmailsEnabled` |
+| `CreationNotifier` | Sends the opt-in confirmation email when a course, assignment or event is created |
+| `IUserClock` / `UserClock` | Wall-clock "now" for a given student, from `ApplicationUser.TimeZone`. See Section 4a |
 
-Additional services can be added as needed (e.g. a notification/reminder service later), but these three cover everything currently planned.
+Entries marked *(planned)* are described in the roadmap but have no class in
+`Services` yet. Everything else exists.
 
 ## 4a. How DateTime values are stored
 
@@ -698,39 +1080,71 @@ into local time, and an assignment due at 11:59pm lands on the wrong day.
 calendar returning 500 on every request, and separately of due dates landing a day
 late.
 
-**The gap this leaves:** "overdue" compares against `DateTime.Now`, the server's
-clock. Correct while the app runs on one laptop, wrong on a UTC host. Needs
-`ApplicationUser.TimeZone` before deployment.
+**The gap this used to leave is now closed.** "Overdue" once compared against
+`DateTime.Now`, the server's clock — correct while the app ran on one laptop,
+wrong on a UTC host, where an assignment due at 11:59pm Central would start
+showing as overdue at 6:59pm. `ApplicationUser.TimeZone` now exists, and every
+"has this passed yet" question goes through `IUserClock`, which answers it
+against that student's wall clock.
+
+`Reminder.Date` and `StudySession.ScheduledDate` are `DateOnly` rather than
+`DateTime` and so sidestep the converter entirely — there is no time of day there
+to be shifted by a time zone.
 
 ## 5. Data Layer
 
 ```csharp
 public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
 {
-    public DbSet<Course> Courses { get; set; }
-    public DbSet<ClassSchedule> ClassSchedules { get; set; }
-    public DbSet<Assignment> Assignments { get; set; }
-    public DbSet<CalendarEvent> CalendarEvents { get; set; }
-    public DbSet<NotificationPreference> NotificationPreferences { get; set; }
-    public DbSet<Notification> Notifications { get; set; }
-    public DbSet<FlashcardDeck> FlashcardDecks { get; set; }
-    public DbSet<Flashcard> Flashcards { get; set; }
-    public DbSet<Quiz> Quizzes { get; set; }
-    public DbSet<QuizQuestion> QuizQuestions { get; set; }
-    public DbSet<QuizAttempt> QuizAttempts { get; set; }
-    public DbSet<QuizAnswer> QuizAnswers { get; set; }
-    public DbSet<StudyGuide> StudyGuides { get; set; }
-    public DbSet<MaterialFolder> MaterialFolders { get; set; }
-    public DbSet<StudyMaterial> StudyMaterials { get; set; }
-    public DbSet<Note> Notes { get; set; }
-    public DbSet<JobApplication> JobApplications { get; set; }
-    public DbSet<Resume> Resumes { get; set; }
-    public DbSet<StudySession> StudySessions { get; set; }
-    public DbSet<Goal> Goals { get; set; }
-    public DbSet<Skill> Skills { get; set; }
-    public DbSet<Certification> Certifications { get; set; }
+    // Academic
+    public DbSet<Course> Courses => Set<Course>();
+    public DbSet<ClassSchedule> ClassSchedules => Set<ClassSchedule>();
+    public DbSet<Assignment> Assignments => Set<Assignment>();
+    public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
+
+    // Study materials
+    public DbSet<MaterialFolder> MaterialFolders => Set<MaterialFolder>();
+    public DbSet<StudyMaterial> StudyMaterials => Set<StudyMaterial>();
+    public DbSet<Note> Notes => Set<Note>();
+
+    // Study tools
+    public DbSet<StudySession> StudySessions => Set<StudySession>();
+    public DbSet<FlashcardDeck> FlashcardDecks => Set<FlashcardDeck>();
+    public DbSet<Flashcard> Flashcards => Set<Flashcard>();
+    public DbSet<Quiz> Quizzes => Set<Quiz>();
+    public DbSet<QuizQuestion> QuizQuestions => Set<QuizQuestion>();
+    public DbSet<QuizAttempt> QuizAttempts => Set<QuizAttempt>();
+    public DbSet<QuizAnswer> QuizAnswers => Set<QuizAnswer>();
+    public DbSet<StudyGuide> StudyGuides => Set<StudyGuide>();
+    public DbSet<StudyConversation> StudyConversations => Set<StudyConversation>();
+    public DbSet<StudyMessage> StudyMessages => Set<StudyMessage>();
+
+    // Career
+    public DbSet<JobApplication> JobApplications => Set<JobApplication>();
+    public DbSet<Resume> Resumes => Set<Resume>();
+    public DbSet<SavedJob> SavedJobs => Set<SavedJob>();
+    public DbSet<Goal> Goals => Set<Goal>();
+    public DbSet<Skill> Skills => Set<Skill>();
+    public DbSet<Certification> Certifications => Set<Certification>();
+
+    // Notifications
+    public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
+    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<Reminder> Reminders => Set<Reminder>();
+
+    // Students and messaging
+    public DbSet<Connection> Connections => Set<Connection>();
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+    public DbSet<ConversationMember> ConversationMembers => Set<ConversationMember>();
+    public DbSet<Message> Messages => Set<Message>();
+    public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
+    public DbSet<MessageAttachment> MessageAttachments => Set<MessageAttachment>();
 }
 ```
+
+Keys, indexes and delete behaviour are all configured in `OnModelCreating`; the
+`DateTime` value converter described in Section 4a is registered in
+`ConfigureConventions`.
 
 ## 6. Folder / Namespace Structure
 
@@ -756,3 +1170,5 @@ PursuitHQ.API
 8. **Resume + ResumeAiService** — AI resume builder (Sprint 8+).
 9. **StudySession + StudyPlannerAiService** — AI study planner (Sprint 8+).
 10. **FlashcardDeck, Flashcard, Quiz, QuizQuestion, QuizAttempt, QuizAnswer, StudyGuide** — AI study tools, plus `ITextExtractionService` and `StudyToolAiService`.
+11. **Connection** — student discovery and connection requests, plus `ConnectionService`. Everything social depends on it, so it comes before messaging.
+12. **Conversation, ConversationMember, Message, MessageReaction, MessageAttachment** — direct and group chat, plus `MessageNotifier` and `RequestNotifier`.

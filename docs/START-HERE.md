@@ -116,13 +116,21 @@ cd "C:\Users\mcken\Desktop\Personal Projects\PursuitHQ\Frontend\pursuithq-web"
 npm run dev
 ```
 
-**First time on a new machine or after a fresh clone**, the website also needs its
-packages and env file:
+**First time on a new machine or after a fresh clone**, the website needs its
+packages installed once:
 ```powershell
 cd "C:\Users\mcken\Desktop\Personal Projects\PursuitHQ\Frontend\pursuithq-web"
 npm install
-Copy-Item .env.example .env.local
 ```
+There is no env file to copy. `lib/api.js` falls back to `http://localhost:5051`
+when `NEXT_PUBLIC_API_URL` is not set, which is exactly what you want locally —
+an `.env.local` is only needed when the API is somewhere else.
+
+The API needs `ConnectionStrings:DefaultConnection` and `Jwt:Key` in
+user-secrets — it throws on startup without the key and tells you the command to
+run. The AI and email keys are optional; the app runs without them, with those
+features switched off. See §5a. On a fresh machine also run
+`dotnet ef database update` from the `PursuitHQ.API` folder to create the tables.
 
 **Both must be running.** The website is just a face on top of the API — if the API
 is not running, nothing on the site works.
@@ -144,20 +152,27 @@ reason something "isn't working" — see §6.
 | Your code | `Backend/PursuitHQ/PursuitHQ.API` and `Frontend/pursuithq-web` |
 | The plan | `docs/` — start with `docs/README.md` |
 | What to build next | `docs/Roadmap.md` |
+| The solution file | `Backend/PursuitHQ/PursuitHQ.slnx` — one project, `PursuitHQ.API`. There is no test project |
 
 ---
 
 ## 4. What already works
 
 - **Accounts** — register, log in, profile, 5-attempt lockout, hashed passwords
+- **Two-step verification** — optional, and off unless you turn it on. Scan a QR
+  code with an authenticator app, then logging in asks for a six-digit code as a
+  second step. Ten recovery codes for when the phone is gone; turning it off or
+  reissuing the codes costs your password
 - **Courses** — create, edit, delete, weekly meeting times, term start and end
   dates, and a color
 - **Assignments** — create, delete, filter, tick off as done, overdue flagging
 - **Calendar** — month, week, and day views. Merges class meetings, assignment due
-  dates, study sessions, and your own events. Click any empty slot to add an
+  dates, reminders, and your own events. Click any empty slot to add an
   event; all-day and multi-day events; weekly repeats; overlapping events sit
   side by side; a live line shows the current time. Assignments have a checkbox
   in the all-day strip, and clicking a class opens that course's materials
+- **Reminders** — a dated to-do list of your own, on the calendar alongside
+  everything else
 - **Saved colors** — the colors you add are stored on your account and offered in
   both the event dialog and the course form
 - **Study materials** — nested folders, drag-and-drop upload, move files between
@@ -171,44 +186,94 @@ reason something "isn't working" — see §6.
 - **Practice tests** — pick the question types and how many, or ask in chat.
   Taken in the app and scored: multiple choice and true/false instantly, written
   answers graded on meaning by AI with a sentence of feedback on each
-- **Settings** — light/dark/system theme, profile, change password (needs your
-  current one), delete account
+- **Resume builder** — write one in the app or import a PDF / Word / text file,
+  format it section by section, and print it from the browser. AI review gives
+  section-level suggestions
+- **Job matcher** — score a resume against one posting, pasted, uploaded, or by
+  link. Postings worth keeping are saved with their score and breakdown at
+  `/resume/jobs`
+- **Student directory** — find classmates by name (only people who switched
+  themselves on in settings) or by exact email. A card shows name, school and
+  education level; the email, major and graduation year appear once you are
+  connected
+- **Connections** — send a request with a note, accept, decline, cancel, remove,
+  block and unblock. A connection is the gate on everything social
+- **Messages** — direct chats with anyone you are connected to, and group chats
+  with owner / admin / member roles, invitations rather than being dropped in,
+  a group photo, and a system line in the timeline when people join or leave.
+  Replies, edits, deletes, emoji reactions, file and image attachments (10 per
+  message, 15MB each), search across every conversation, typing indicators, read
+  receipts, pin, mute, and mark-unread. It **polls** — the list every 15 seconds,
+  an open thread every 5, typing and read receipts every 2.5; SignalR replaces
+  exactly those timers
+- **Email** — reminders for assignment due dates and calendar events, daily and
+  weekly digests, optional confirmations when you create something, and mail
+  when you get a message or a connection request. Every switch is in settings,
+  and delivery is in your own time zone. Password reset goes out by email too.
+  Without a Resend API key configured, every one of those prints to the API
+  terminal instead, so the whole flow still runs on a laptop
+- **Settings** — light/dark/system theme, profile, photo, time zone, whether you
+  are listed in the student directory, two-step verification, every email
+  switch, change password (needs your current one), delete account
 - **Password reset** — request a link and set a new password; a successful reset
-  also clears any lockout. Until email exists the link is printed in the API
-  terminal and shown on screen in development
-- **Dashboard** — counts, upcoming assignments, course list (still the oldest
-  page in the app)
-- **Database** — 32 tables in PostgreSQL, every table modeled and migrated
+  also clears any lockout
+- **Dashboard** — one aggregated request: today's schedule, what is due soon and
+  what is overdue, your courses with open-assignment counts, recent decks and
+  test scores. Assignments are tickable from the page itself
+- **Time zones** — every account carries an IANA zone, set at registration and
+  changeable in settings. "Overdue" and every reminder are worked out against
+  *your* wall clock, not the server's
+- **Database** — 32 application tables in PostgreSQL on top of Identity's own,
+  every one modeled and migrated
 
-Phases 0–4, 6 and 9 are complete, plus the calendar (Phase 3a).
+Phases 0–4 (including 2a, 3a and 3b), 6, 7, 9 and 11–11d are complete. Phases 8
+(career growth), 10 (analytics and polish) and 12 (deployment) are open.
 
 **Removed on purpose:** the job tracker and job search. Every posting the search
 returned had already closed by the time you clicked it, and it was eating the time
 meant for the study features. `docs/Roadmap.md` §5 has the full account, including
-what was kept so it could come back later.
+what was kept so it could come back later — the resume matcher and saved jobs
+both survived and still work.
 
 ---
 
 ## 5. What you are building next
 
-**Phase 8 — career growth.** Goals, skills, and certifications: the last pillar
-of the original PursuitHQ idea that has no code behind it. Three entities with
-the same shape as courses and assignments, so the pattern is one you have built
-before — endpoints, then pages, one entity finished end to end before the next.
+The social feature area was built in September 2026, out of order. What is left
+is a short list of things the code as it stands is actually waiting on, roughly
+in the order of how much it would hurt to leave them. `docs/Roadmap.md` has the
+same list under "What is actually next", with more detail on each.
 
-Other things queued up, none blocking the others:
+- **Files off the local disk.** `LocalFileStorageService` writes to a folder on
+  whatever machine runs the API, and a hosted container's disk does not survive
+  a redeploy — every uploaded material, profile photo and chat attachment would
+  vanish the second time the app is deployed. This is the one item that destroys
+  data rather than merely being untidy.
+- **The JWT out of `localStorage` and into an httpOnly cookie.** Any script that
+  gets onto the page can read the token today.
+- **Rate limiting.** There is exactly one limit in the whole app: 20 email
+  lookups per student per hour. Login, registration, password reset, message
+  sending and the AI endpoints have none.
+- **Some automated tests.** There is no test suite and no test project in the
+  solution. The first ones to write are the ones proving a non-member cannot
+  read, send, react, edit, delete, invite or download in a conversation.
+- **SignalR in place of polling.** Four timers currently stand in for push: the
+  conversation list, the open thread, presence, and the unread badge.
 
-- **Study session UI.** Planned study blocks already render on the calendar and
-  already have a table, but nothing in the app can create one. A visible gap.
-- **Phase 3b — Email reminders.** Assignment and event reminders plus a digest —
-  and it makes password reset real, since the link would arrive by email instead
-  of the API log. Needs a Resend account, a verified sending domain, and an
-  external cron. More setup than code, and parts cannot be tested locally.
-- **Analytics (Phase 10).** Charts over what you already collect: assignments,
-  test scores, goals.
-- **Security before anyone else uses it.** The JWT belongs in an httpOnly cookie,
-  and `ApplicationUser.TimeZone` has to exist before "overdue" runs on a server
-  in another time zone.
+Features still unbuilt, neither blocking the other:
+
+- **Phase 8 — career growth.** Goals, skills, and certifications: the last pillar
+  of the original PursuitHQ idea with no code behind it. `Goal`, `Skill` and
+  `Certification` are entities and tables already — no controller, no page. Same
+  shape as courses and assignments, so the pattern is one you have built before.
+- **Study sessions.** The `StudySession` table exists and nothing uses it.
+  Nothing in the app creates one, and they were dropped from the calendar feed
+  in September 2026 because that source only ever returned nothing. The table
+  was left in place so the feature can come back without a migration. (The pages
+  under `/courses/{id}/sessions` are study *chat* sessions, which is a different
+  thing wearing the same word.)
+- **Phase 10 — analytics and polish.** Charts over what you already collect:
+  assignments, test scores. Plus an accessibility and mobile pass.
 
 **Build one thing end to end before starting the next.** Flashcards, then the
 chat, then practice tests each went generate → save → use before the next began.
@@ -223,10 +288,19 @@ Lives in user-secrets, outside the project, so it is not in git:
 | Key | What it powers | Cost |
 |---|---|---|
 | `Ai:ApiKey` | Gemini, for every study tool | ~1¢ per request |
+| `Email:ApiKey` + `Email:FromAddress` | Resend, for reminders, digests, password reset, message and request mail | Free tier covers this volume |
 
-Also in user-secrets: `ConnectionStrings:DefaultConnection` and `Jwt:Key`.
+Also in user-secrets: `ConnectionStrings:DefaultConnection` and `Jwt:Key`. The
+API refuses to start without `Jwt:Key`, and says so.
 
-Check them with `dotnet user-secrets list` from the `PursuitHQ.API` folder.
+**Run `dotnet user-secrets list` from the `PursuitHQ.API` folder to see which of
+these this machine actually has** — the secrets live outside the repo, so a
+fresh clone or a second machine starts with none of them.
+
+With no email key configured the app falls back to `ConsoleEmailService`, which
+prints every email — reset links included — to the API terminal. Nothing breaks;
+the mail just does not leave the laptop. The settings page shows this as
+"delivery not configured".
 
 **Billing is enabled**, with $10 of credit on it. That was not for cost — the
 free tier caps you at 20 requests per *minute*, shared across flashcards, chat
@@ -335,6 +409,10 @@ have gone with the laptop's copy.
 | Gemini: "exceeded your current quota ... limit: 20" | The free tier's per-**minute** cap, not a daily one | It clears in seconds and is retried automatically now. If it persists, billing is not on the same Google Cloud project as the API key |
 | Gemini returns 200 but the app says "empty answer" | The response shape did not match any known path | The API log prints the raw JSON — look for the `warn` line starting "Gemini returned a success with no readable text" |
 | Something looks wrong only in dark mode | An element assumed a light background | See the note at the top of `globals.css`; that element needs its own explicit colors |
+| "You can only message students you are connected with" | A 403, not a bug — a direct chat needs an accepted connection both ways | Send a request from `/students` first |
+| A classmate does not come up in student search | Name search only lists people who switched on "list me in the directory" | Look them up by their exact email instead, or ask them to turn it on in settings |
+| Reminder emails never arrive | No `Email:ApiKey` in user-secrets, so `ConsoleEmailService` is standing in | Look in the API terminal — the email is printed there in full |
+| Nothing in the app can create a study session | There is no UI for it, and nothing reads the table | Not a bug; see §5 |
 
 ---
 
@@ -342,13 +420,23 @@ have gone with the laptop's copy.
 
 Tracked in `docs/README.md`, repeated here so they are not forgotten:
 
-- **Password reset works, but the email does not send.** The link is printed in
-  the API terminal and shown on screen in development. Phase 3b turns that into a
-  real email; nothing else about the flow changes.
+- **Uploaded files live on the local disk.** `LocalFileStorageService` writes
+  under `PursuitHQ.API/storage`. That folder does not survive a redeploy on a
+  hosted container, which would take every material, photo and attachment with
+  it. Must be cloud storage before deployment. See `docs/Deployment.md`.
 - **The JWT is stored in `localStorage`.** Readable by any script on the page. Move
   to an httpOnly cookie before other students use PursuitHQ.
-- **"Overdue" uses the server's clock.** Correct on your laptop, wrong on a UTC
-  server. Needs `ApplicationUser.TimeZone` before deployment.
+- **There is no test suite.** No test project in the solution, nothing automated
+  anywhere. Everything has been checked by hand. The conversation endpoints are
+  the place where that is least good enough, because a missing check there shows
+  somebody else's messages rather than an error.
+- **Almost nothing is rate limited.** One hand-rolled cap on email lookup and
+  that is all. Login, password reset, message sending and the AI endpoints are
+  wide open.
+- **Messaging polls.** Four timers, the fastest every 2.5 seconds. It works and
+  it is wasteful; SignalR replaces the timers and nothing else.
+- **Nothing reports a 500 from a deployed API.** Today the only record of a
+  failure is a line in a terminal on a laptop.
 - **The project no longer lives in OneDrive.** It moved to
   `C:\Users\mcken\Desktop\Personal Projects\PursuitHQ` on 12 September, after
   OneDrive emptied the folder — every tracked file and the inside of `.git` with
@@ -357,8 +445,10 @@ Tracked in `docs/README.md`, repeated here so they are not forgotten:
   different folders on this machine; the old, emptied copy is in the second one.
 - **Gemini free tier uses your content to improve Google's products.** Fine while
   you are the only user; needs a privacy disclosure or a paid tier before anyone
-  else uses the AI features.
-- **Email provider domain** — needed before reminder emails can send.
+  else uses the AI features. Worth re-checking whether the paid tier is different.
+- **Reminders only go out while the API is up.** `ReminderBackgroundService` runs
+  in-process every five minutes. At deployment that becomes a secured endpoint
+  with a hosted cron in front of it.
 
 ---
 
@@ -366,12 +456,17 @@ Tracked in `docs/README.md`, repeated here so they are not forgotten:
 
 Give Claude this context and you will get straight back into it:
 
-> I'm working on PursuitHQ. Phases 0–4, 6 and 9 are done, plus the calendar
-> (Phase 3a): the AI study tools all work — flashcards, a per-course study chat,
-> and practice tests with AI grading. Settings, dark mode and password reset are
-> done too. The job tracker and job search were removed on purpose. Next is
-> Phase 7, the dashboard. Check `docs/Roadmap.md` and `docs/START-HERE.md` for
-> where I am.
+> I'm working on PursuitHQ. Phases 0–4 (with 2a two-step verification, 3a the
+> calendar and 3b email reminders), 6, 7, 9 and 11–11d are done: the AI study
+> tools all work — flashcards, a per-course study chat, practice tests with AI
+> grading — plus the resume builder and job matcher, and the whole social side:
+> student directory, connections, direct and group messages with reactions,
+> attachments, search, typing indicators and read receipts, all by polling
+> rather than SignalR. Settings, dark mode and password reset are done too. The
+> job tracker and job search were removed on purpose; the resume matcher and
+> saved jobs survived. Still open: Phase 8 (career growth), Phase 10 (analytics)
+> and Phase 12 (deployment), and there is no test suite. Check
+> `docs/Roadmap.md` and `docs/START-HERE.md` for where I am.
 
 Everything is documented in `docs/`. Nothing about this project lives only in
 someone's head.

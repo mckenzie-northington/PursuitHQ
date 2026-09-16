@@ -37,6 +37,10 @@ namespace PursuitHQ.API.DTOs.Notifications
 
         public bool CreationConfirmationsEnabled { get; set; }
 
+        public bool MessageEmailsEnabled { get; set; }
+
+        public bool RequestEmailsEnabled { get; set; }
+
         /// <summary>Read-only here, so the settings page can say where reminders will be timed from.</summary>
         public string TimeZone { get; set; } = string.Empty;
 
@@ -82,5 +86,9 @@ namespace PursuitHQ.API.DTOs.Notifications
         public string WeeklyDigestTime { get; set; } = "18:00";
 
         public bool CreationConfirmationsEnabled { get; set; }
+
+        public bool MessageEmailsEnabled { get; set; }
+
+        public bool RequestEmailsEnabled { get; set; }
     }
 }

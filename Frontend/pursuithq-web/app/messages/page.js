@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import {
   conversations as conversationsApi,
@@ -10,6 +17,8 @@ import { useAuth } from "@/components/AuthProvider";
 import Avatar, { forgetPhoto } from "@/components/Avatar";
 import { filterStudents } from "@/lib/studentSearch";
 import EmojiPicker, { QUICK_REACTIONS } from "@/components/EmojiPicker";
+import ContextMenu from "@/components/ContextMenu";
+import GroupSettings, { ROLE } from "@/components/GroupSettings";
 
 /**
  * While a conversation is open it is re-fetched on this interval.
@@ -20,11 +29,46 @@ import EmojiPicker, { QUICK_REACTIONS } from "@/components/EmojiPicker";
 const POLL_MS = 5_000;
 
 /**
+ * How often an open thread asks who is typing and who has caught up.
+ *
+ * Faster than the message poll, because these are the parts that have to feel
+ * immediate - a "typing" bubble that arrives five seconds late is worse than
+ * none. The response is two short lists whatever the history looks like.
+ */
+const PRESENCE_POLL_MS = 2_500;
+
+/**
+ * The most often the composer will tell the server you are typing.
+ *
+ * Shorter than the server's six-second window, so a steady typist never
+ * flickers off, and long enough that a fast one is not sending a request per
+ * keystroke.
+ */
+const TYPING_PING_MS = 2_500;
+
+/**
+ * How often the conversation list refreshes on its own.
+ *
+ * Slower than the open thread, because this only has to move a badge. Without
+ * it the list only updated when something else happened to reload it, so an
+ * unread marker on a chat you were not looking at could sit there unchanged.
+ */
+const LIST_POLL_MS = 15_000;
+
+/**
+ * How many files can ride along with one message.
+ *
+ * Matches MaxAttachmentsPerMessage on the API. The limit is enforced there; this
+ * copy only exists so the picker stops you before the upload rather than after.
+ */
+const MAX_ATTACHMENTS = 10;
+
+/**
  * The heading above the first message of each day.
  *
- * Today and yesterday get words rather than a date, because that is how
- * people actually refer to them, and a bare "16 Sep" on today's messages
- * makes a live conversation read like an archive.
+ * Today and yesterday get words rather than a date, because that is how people
+ * refer to them, and a bare "16 Sep" on today's messages makes a live
+ * conversation read like an archive.
  */
 function dayLabel(date) {
   const day = new Date(date);
@@ -49,10 +93,96 @@ function dayLabel(date) {
 const timeLabel = (date) =>
   new Date(date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-/** Matches ConversationRole in the API. Ordered, so comparisons work. */
-const ROLE = { MEMBER: 0, ADMIN: 1, OWNER: 2 };
+/**
+ * A cheap fingerprint of a message list, used to decide whether a poll actually
+ * brought anything new.
+ *
+ * The old check compared only the *last* message, so reacting to, editing or
+ * deleting anything above it was read as "nothing changed" and thrown away -
+ * which is why reactions appeared to do nothing at all unless you happened to
+ * pick the newest message.
+ */
+function signature(messages) {
+  return messages
+    .map(
+      (m) =>
+        `${m.id}|${m.body?.length ?? 0}|${m.isEdited ? 1 : 0}|${m.isDeleted ? 1 : 0}|` +
+        `${m.attachments?.length ?? 0}|` +
+        (m.reactions ?? [])
+          .map((r) => `${r.emoji}${r.count}${r.mine ? "*" : ""}`)
+          .join(",")
+    )
+    .join(";");
+}
 
-const ROLE_LABEL = { 0: "Member", 1: "Admin", 2: "Owner" };
+function TypingBubble({ names, isGroup }) {
+  const label = !isGroup
+    ? null
+    : names.length === 1
+    ? `${names[0]} is typing`
+    : names.length === 2
+    ? `${names[0]} and ${names[1]} are typing`
+    : `${names.length} people are typing`;
+
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <span
+        aria-label={label ?? "Typing"}
+        className="flex items-center gap-1 rounded-2xl bg-slate-100 px-3 py-2.5"
+      >
+        {[0, 150, 300].map((delay) => (
+          <span
+            key={delay}
+            style={{ animationDelay: `${delay}ms` }}
+            className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400"
+          />
+        ))}
+      </span>
+
+      {label && <span className="text-xs text-slate-500">{label}</span>}
+    </div>
+  );
+}
+
+function BellIcon({ muted, size = 18 }) {
+  return (
+    <svg
+      width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true"
+    >
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+      {/* The slash is the whole signal: one icon, struck through or not. */}
+      {muted && <line x1="3" y1="3" x2="21" y2="21" />}
+    </svg>
+  );
+}
+
+function DownloadIcon({ size = 16 }) {
+  return (
+    <svg
+      width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true"
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="M7 10l5 5 5-5" />
+      <path d="M12 15V3" />
+    </svg>
+  );
+}
+
+function PinIcon({ size = 12 }) {
+  return (
+    <svg
+      width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M16 3l5 5-2 2-1-1-4 4 1 4-2 2-4-4-5 5-1-1 5-5-4-4 2-2 4 1 4-4-1-1z" />
+    </svg>
+  );
+}
 
 export default function MessagesPage() {
   const { user, loading } = useAuth();
@@ -64,15 +194,27 @@ export default function MessagesPage() {
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
 
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState([]);
+  const [searching, setSearching] = useState(false);
+
+  const [requests, setRequests] = useState([]);
+  const [rowMenu, setRowMenu] = useState(null);
+
   const loadList = useCallback(async () => {
     try {
-      const [found, invites] = await Promise.all([
+      // Connection requests are caught separately: they are the least
+      // important of the three, and a failure there must not cost you the
+      // conversation list.
+      const [found, invites, pending] = await Promise.all([
         conversationsApi.list(),
         conversationsApi.invitations(),
+        connectionsApi.requests().catch(() => []),
       ]);
 
       setList(found);
       setInvitations(invites);
+      setRequests(pending);
       return found;
     } catch (err) {
       setError(err.message);
@@ -82,14 +224,39 @@ export default function MessagesPage() {
     }
   }, []);
 
-  /**
-   * Takes a conversation off your list.
-   *
-   * Deliberately not a delete. Leaving a group is permanent; removing a direct
-   * conversation only hides it from you, and it reappears if the other person
-   * writes again - their messages are theirs, and quietly throwing them away
-   * for both sides is not what an X on a row should do.
-   */
+  // Message search runs on the server; conversation names are filtered here,
+  // because the list is already loaded and a round trip to match a title the
+  // browser is holding would be slower and no more accurate.
+  useEffect(() => {
+    const trimmed = query.trim();
+
+    if (trimmed.length < 2) {
+      setHits([]);
+      return;
+    }
+
+    setSearching(true);
+
+    const id = setTimeout(() => {
+      conversationsApi
+        .searchMessages(trimmed)
+        .then(setHits)
+        .catch(() => setHits([]))
+        .finally(() => setSearching(false));
+    }, 300);
+
+    return () => clearTimeout(id);
+  }, [query]);
+
+  async function act(fn) {
+    try {
+      await fn();
+      await loadList();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function remove(conversation) {
     const warning = conversation.isGroup
       ? `Leave “${conversation.title}”? You will stop receiving its messages.`
@@ -104,6 +271,17 @@ export default function MessagesPage() {
       setOpenId((current) =>
         current === conversation.id ? remaining[0]?.id ?? null : current
       );
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function answerRequest(connectionId, accept) {
+    try {
+      if (accept) await connectionsApi.accept(connectionId);
+      else await connectionsApi.decline(connectionId);
+
+      await loadList();
     } catch (err) {
       setError(err.message);
     }
@@ -135,26 +313,56 @@ export default function MessagesPage() {
     });
   }, [loading, user, loadList]);
 
+  // Paused while the tab is hidden: a backgrounded page polling every fifteen
+  // seconds is a battery cost with nobody there to see the result.
+  useEffect(() => {
+    if (loading || !user) return;
+
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") loadList();
+    }, LIST_POLL_MS);
+
+    return () => clearInterval(timer);
+  }, [loading, user, loadList]);
+
   if (loading || !ready) {
     return <div className="mx-auto max-w-6xl px-6 py-10 text-slate-500">Loading...</div>;
   }
 
   const open = list.find((c) => c.id === openId);
+  const searchingNow = query.trim().length >= 2;
+
+  const pendingCount = requests.length + invitations.length;
+
+  // Hidden while searching: search takes over the whole area below the header,
+  // and a requests column beside results nobody asked it to filter is clutter.
+  const showRequests = pendingCount > 0 && !searchingNow;
+  const matchingTitles = searchingNow ? filterByTitle(list, query) : [];
 
   return (
     // Fills the window rather than sitting in a fixed-height box. The
     // subtracted 4.5rem is the nav bar, rounded up: spare pixels are invisible,
-    // too few bring back the page scrollbar this exists to remove. dvh rather
-    // than vh so a phone's collapsing address bar cannot hide the composer.
+    // too few bring back the page scrollbar this exists to remove.
     <div className="mx-auto flex h-[calc(100dvh-4.5rem)] max-w-6xl flex-col px-6 py-6">
-      <div className="flex shrink-0 items-center justify-between">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Messages</h1>
-        <button
-          onClick={() => setCreating(true)}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700"
-        >
-          New group
-        </button>
+
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search chats and messages"
+            className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          />
+
+          <button
+            onClick={() => setCreating(true)}
+            className="shrink-0 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700"
+          >
+            New group
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -166,51 +374,39 @@ export default function MessagesPage() {
         </div>
       )}
 
-      {invitations.length > 0 && (
-        <div className="mt-3 shrink-0 space-y-2">
-          {invitations.map((invite) => (
-            <div
-              key={invite.conversationId}
-              className="flex flex-wrap items-center gap-3 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3"
-            >
-              <Avatar
-                group={{
-                  id: invite.conversationId,
-                  title: invite.name,
-                  hasPhoto: invite.hasPhoto,
-                }}
-                size={36}
-              />
+      {/* Narrow windows have no room for a third column, so the same panel
+          folds into one line that opens. Closed by default: a stack of requests
+          should not push the conversation you came here for off the screen,
+          which is exactly what the old full-width banners did. */}
+      {showRequests && (
+        <details className="mt-3 shrink-0 rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-2 xl:hidden">
+          <summary className="cursor-pointer select-none text-sm font-medium text-slate-800">
+            {pendingCount} {pendingCount === 1 ? "request" : "requests"} waiting
+          </summary>
 
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-slate-900">{invite.name}</p>
-                <p className="truncate text-xs text-slate-600">
-                  {invite.invitedByName} invited you · {invite.memberCount}{" "}
-                  {invite.memberCount === 1 ? "person" : "people"}
-                  {invite.description ? ` · ${invite.description}` : ""}
-                </p>
-              </div>
-
-              <div className="flex shrink-0 gap-2">
-                <button
-                  onClick={() => answerInvite(invite.conversationId, true)}
-                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-700"
-                >
-                  Join
-                </button>
-                <button
-                  onClick={() => answerInvite(invite.conversationId, false)}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  Decline
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+          <div className="mt-2 flex h-56 flex-col">
+            <RequestsPanel
+              requests={requests}
+              invitations={invitations}
+              onAnswerRequest={answerRequest}
+              onAnswerInvite={answerInvite}
+            />
+          </div>
+        </details>
       )}
 
-      {list.length === 0 ? (
+      {searchingNow ? (
+        <SearchResults
+          query={query}
+          titles={matchingTitles}
+          hits={hits}
+          busy={searching}
+          onOpen={(id) => {
+            setOpenId(id);
+            setQuery("");
+          }}
+        />
+      ) : list.length === 0 ? (
         <div className="mt-6 rounded-xl border border-dashed border-slate-300 px-6 py-12 text-center">
           <p className="text-slate-600">No conversations yet.</p>
           <p className="mt-1 text-sm text-slate-500">
@@ -225,49 +421,77 @@ export default function MessagesPage() {
         // min-h-0 on the grid and both panes: without it a flex or grid child
         // refuses to shrink below its content, so the inner scroll areas push
         // the page into scrolling instead of scrolling themselves.
-        <div className="mt-4 grid min-h-0 flex-1 gap-4 md:grid-cols-[18rem_1fr]">
+        <div
+          className={`mt-4 grid min-h-0 flex-1 gap-4 md:grid-cols-[15.5rem_1fr] ${
+            showRequests ? "xl:grid-cols-[15.5rem_1fr_12.5rem]" : ""
+          }`}
+        >
           <ul className="min-h-0 space-y-1 overflow-y-auto">
             {list.map((conversation) => (
-              <li
-                key={conversation.id}
-                className={`flex items-center rounded-lg pr-1 transition ${
-                  openId === conversation.id ? "bg-indigo-50" : "hover:bg-slate-100"
-                }`}
-              >
+              <li key={conversation.id}>
                 <button
                   onClick={() => setOpenId(conversation.id)}
-                  className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-left"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setRowMenu({ x: e.clientX, y: e.clientY, conversation });
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition ${
+                    openId === conversation.id ? "bg-indigo-50" : "hover:bg-slate-100"
+                  }`}
                 >
-                  {conversation.isGroup ? (
-                    <Avatar
-                      group={{
-                        id: conversation.id,
-                        title: conversation.title,
-                        hasPhoto: conversation.hasPhoto,
-                      }}
-                      size={40}
-                    />
-                  ) : (
-                    <Avatar student={conversation.members[0]} size={40} />
-                  )}
+                  {/* The dot sits on the picture, which is the one part of a
+                      row the eye lands on first. Grey when the chat is muted:
+                      still something new, but not something shouting. */}
+                  <span className="relative shrink-0">
+                    {conversation.isGroup ? (
+                      <Avatar
+                        group={{
+                          id: conversation.id,
+                          title: conversation.title,
+                          hasPhoto: conversation.hasPhoto,
+                        }}
+                        size={40}
+                      />
+                    ) : (
+                      <Avatar student={conversation.members[0]} size={40} />
+                    )}
+
+                    {conversation.unreadCount > 0 && (
+                      <span
+                        aria-label={`${conversation.unreadCount} unread`}
+                        className={`absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full ring-2 ring-white ${
+                          conversation.isMuted ? "bg-slate-400" : "bg-red-500"
+                        }`}
+                      />
+                    )}
+                  </span>
 
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-slate-900">
-                        {conversation.title}
+                      <span className="flex min-w-0 items-center gap-1">
+                        {conversation.isPinned && (
+                          <span className="shrink-0 text-slate-400">
+                            <PinIcon />
+                          </span>
+                        )}
+                        <span className="truncate text-sm font-medium text-slate-900">
+                          {conversation.title}
+                        </span>
                       </span>
 
-                      {conversation.isMuted ? (
-                        <span className="shrink-0 text-xs text-slate-400" title="Muted">
-                          muted
-                        </span>
-                      ) : (
-                        conversation.unreadCount > 0 && (
-                          <span className="shrink-0 rounded-full bg-red-500 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        {conversation.isMuted && (
+                          <span className="text-slate-300">
+                            <BellIcon muted size={13} />
+                          </span>
+                        )}
+
+                        {conversation.unreadCount > 0 && !conversation.isMuted && (
+                          <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[11px] font-semibold text-white">
                             {conversation.unreadCount}
                           </span>
-                        )
-                      )}
+                        )}
+                      </span>
                     </span>
 
                     <span className="block truncate text-xs text-slate-500">
@@ -280,19 +504,6 @@ export default function MessagesPage() {
                         : "No messages yet"}
                     </span>
                   </span>
-                </button>
-
-                <button
-                  onClick={() => remove(conversation)}
-                  title={conversation.isGroup ? "Leave group" : "Remove from list"}
-                  aria-label={
-                    conversation.isGroup
-                      ? `Leave ${conversation.title}`
-                      : `Remove conversation with ${conversation.title}`
-                  }
-                  className="shrink-0 rounded-md px-2 py-1 text-lg leading-none text-slate-300 transition hover:bg-white hover:text-red-600"
-                >
-                  &times;
                 </button>
               </li>
             ))}
@@ -314,7 +525,66 @@ export default function MessagesPage() {
               Pick a conversation.
             </div>
           )}
+
+          {/* A column of its own, mirroring the conversation list on the far
+              side, and scrolling on its own rather than growing the page. */}
+          {showRequests && (
+            <aside className="hidden min-h-0 xl:flex xl:flex-col">
+              <RequestsPanel
+                requests={requests}
+                invitations={invitations}
+                onAnswerRequest={answerRequest}
+                onAnswerInvite={answerInvite}
+              />
+            </aside>
+          )}
         </div>
+      )}
+
+      {rowMenu && (
+        <ContextMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          onClose={() => setRowMenu(null)}
+          items={[
+            {
+              label: rowMenu.conversation.isPinned ? "Unpin" : "Pin to top",
+              onClick: () =>
+                act(() =>
+                  conversationsApi.setPinned(
+                    rowMenu.conversation.id,
+                    !rowMenu.conversation.isPinned
+                  )
+                ),
+            },
+            {
+              label:
+                rowMenu.conversation.unreadCount > 0 ? "Mark as read" : "Mark as unread",
+              onClick: () =>
+                act(() =>
+                  rowMenu.conversation.unreadCount > 0
+                    ? conversationsApi.markRead(rowMenu.conversation.id)
+                    : conversationsApi.markUnread(rowMenu.conversation.id)
+                ),
+            },
+            {
+              label: rowMenu.conversation.isMuted ? "Unmute" : "Mute",
+              onClick: () =>
+                act(() =>
+                  conversationsApi.setMuted(
+                    rowMenu.conversation.id,
+                    !rowMenu.conversation.isMuted
+                  )
+                ),
+            },
+            "divider",
+            {
+              label: rowMenu.conversation.isGroup ? "Leave group" : "Remove from list",
+              danger: true,
+              onClick: () => remove(rowMenu.conversation),
+            },
+          ]}
+        />
       )}
 
       {creating && (
@@ -331,22 +601,248 @@ export default function MessagesPage() {
   );
 }
 
+function filterByTitle(list, query) {
+  const needle = query.trim().toLowerCase();
+
+  return list.filter((c) => c.title.toLowerCase().includes(needle));
+}
+
+/* ------------------------------------------------------------------ search */
+
+function SearchResults({ query, titles, hits, busy, onOpen }) {
+  return (
+    <div className="mt-4 min-h-0 flex-1 space-y-6 overflow-y-auto">
+      <section>
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+          Chats
+        </p>
+
+        {titles.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">No chat names match “{query}”.</p>
+        ) : (
+          <ul className="mt-2 space-y-1">
+            {titles.map((conversation) => (
+              <li key={conversation.id}>
+                <button
+                  onClick={() => onOpen(conversation.id)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-slate-100"
+                >
+                  {conversation.isGroup ? (
+                    <Avatar
+                      group={{
+                        id: conversation.id,
+                        title: conversation.title,
+                        hasPhoto: conversation.hasPhoto,
+                      }}
+                      size={32}
+                    />
+                  ) : (
+                    <Avatar student={conversation.members[0]} size={32} />
+                  )}
+                  <span className="truncate text-sm font-medium text-slate-900">
+                    {conversation.title}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+          Messages
+        </p>
+
+        {busy ? (
+          <p className="mt-2 text-sm text-slate-500">Searching...</p>
+        ) : hits.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">No messages match “{query}”.</p>
+        ) : (
+          <ul className="mt-2 space-y-1">
+            {hits.map((hit) => (
+              <li key={hit.messageId}>
+                <button
+                  onClick={() => onOpen(hit.conversationId)}
+                  className="w-full rounded-lg px-3 py-2 text-left transition hover:bg-slate-100"
+                >
+                  <p className="flex items-center justify-between gap-2 text-xs text-slate-500">
+                    <span className="truncate font-medium text-slate-700">
+                      {hit.conversationTitle}
+                    </span>
+                    <span className="shrink-0">
+                      {dayLabel(hit.sentAt)} {timeLabel(hit.sentAt)}
+                    </span>
+                  </p>
+                  <p className="mt-0.5 truncate text-sm text-slate-800">
+                    <span className="text-slate-500">{hit.senderName}: </span>
+                    {hit.body}
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* Said plainly rather than left as a surprise: opening a result shows
+            the conversation at its newest messages, not at the match. Jumping
+            to an old message means paging back to it, which is a bigger change
+            than this search was. */}
+        {hits.length > 0 && (
+          <p className="mt-3 text-xs text-slate-400">
+            Opening a result shows the latest messages in that chat, not the matched one.
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- requests */
+
+/**
+ * Connection requests and group invitations, in the same shape as a
+ * conversation row.
+ *
+ * One list rather than two sections: to the person reading it these are the
+ * same thing - somebody is waiting on an answer - and splitting them into
+ * headed groups spends vertical space on a distinction nobody is looking for.
+ */
+function RequestsPanel({ requests, invitations, onAnswerRequest, onAnswerInvite }) {
+  const total = requests.length + invitations.length;
+
+  const accept =
+    "flex-1 rounded-md bg-indigo-600 px-1 py-1 text-[11px] font-medium text-white transition hover:bg-indigo-700";
+  const decline =
+    "flex-1 rounded-md border border-slate-300 bg-white px-1 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-slate-50";
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <p className="flex shrink-0 items-center gap-2 px-1 pb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+        Requests
+        <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700">
+          {total}
+        </span>
+      </p>
+
+      <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+        {requests.map((request) => (
+          <li
+            key={`connection-${request.id}`}
+            className="rounded-lg border border-slate-200 bg-white p-1.5"
+          >
+            <div className="flex items-center gap-1.5">
+              <Avatar student={request.student} size={26} />
+
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-slate-900">
+                  {request.student.firstName} {request.student.lastName}
+                </p>
+                <p className="truncate text-[11px] text-slate-500">
+                  {request.student.school || "Wants to connect"}
+                </p>
+              </div>
+            </div>
+
+            {request.note && (
+              <p className="mt-1 line-clamp-2 rounded-md bg-slate-50 px-1.5 py-1 text-[11px] text-slate-600">
+                {request.note}
+              </p>
+            )}
+
+            <div className="mt-1.5 flex gap-1">
+              <button onClick={() => onAnswerRequest(request.id, true)} className={accept}>
+                Accept
+              </button>
+              <button onClick={() => onAnswerRequest(request.id, false)} className={decline}>
+                Decline
+              </button>
+            </div>
+          </li>
+        ))}
+
+        {invitations.map((invite) => (
+          <li
+            key={`group-${invite.conversationId}`}
+            className="rounded-lg border border-slate-200 bg-white p-1.5"
+          >
+            <div className="flex items-center gap-1.5">
+              <Avatar
+                group={{
+                  id: invite.conversationId,
+                  title: invite.name,
+                  hasPhoto: invite.hasPhoto,
+                }}
+                size={26}
+              />
+
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-slate-900">{invite.name}</p>
+                <p className="truncate text-[11px] text-slate-500">
+                  {invite.invitedByName} invited you
+                </p>
+              </div>
+            </div>
+
+            {invite.description && (
+              <p className="mt-1 line-clamp-2 px-0.5 text-[11px] text-slate-500">
+                {invite.description}
+              </p>
+            )}
+
+            <div className="mt-1.5 flex gap-1">
+              <button
+                onClick={() => onAnswerInvite(invite.conversationId, true)}
+                className={accept}
+              >
+                Join
+              </button>
+              <button
+                onClick={() => onAnswerInvite(invite.conversationId, false)}
+                className={decline}
+              >
+                Decline
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ thread */
 
 function Thread({ conversation, me, onChanged, onClosed }) {
   const [messages, setMessages] = useState([]);
   const [ready, setReady] = useState(false);
   const [body, setBody] = useState("");
+  const [pendingFiles, setPendingFiles] = useState([]);
   const [replyTo, setReplyTo] = useState(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
-  const [attaching, setAttaching] = useState(false);
-  const fileInput = useRef(null);
+  const [menu, setMenu] = useState(null);
+  const [picker, setPicker] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [presence, setPresence] = useState({ typing: [], readers: [] });
 
   const scroller = useRef(null);
-  const atFirstPaint = useRef(true);
+  const content = useRef(null);
+  const fileInput = useRef(null);
+
+  // Whether the view is following the end of the conversation. True until you
+  // scroll away from the bottom yourself, so an arriving message only pulls the
+  // view down when you were already down there reading.
+  const composer = useRef(null);
+  const lastPing = useRef(0);
+  const pinned = useRef(true);
+
+  // Cleared the first time real messages are laid out - and only then. The
+  // first render happens before anything has loaded, and a flag spent on an
+  // empty list was the whole reason threads were opening at the top.
+  const opening = useRef(true);
   const id = conversation.id;
 
   const load = useCallback(
@@ -356,14 +852,9 @@ function Thread({ conversation, me, onChanged, onClosed }) {
 
         // Only re-render when something actually changed, so the poll does not
         // fight with the text box or reset the scroll position every 5 seconds.
-        setMessages((current) => {
-          const same =
-            current.length === found.length &&
-            current[current.length - 1]?.id === found[found.length - 1]?.id &&
-            current[current.length - 1]?.body === found[found.length - 1]?.body;
-
-          return same ? current : found;
-        });
+        setMessages((current) =>
+          signature(current) === signature(found) ? current : found
+        );
 
         if (markRead) {
           await conversationsApi.markRead(id);
@@ -388,45 +879,146 @@ function Thread({ conversation, me, onChanged, onClosed }) {
     return () => clearInterval(timer);
   }, [load]);
 
+  // Its own loop, on its own clock. Failures are swallowed: a typing bubble
+  // that does not arrive is a missing nicety, not something to put a red error
+  // bar across somebody's conversation for.
   useEffect(() => {
+    let live = true;
+
+    async function tick() {
+      if (document.visibilityState !== "visible") return;
+
+      try {
+        const found = await conversationsApi.presence(id);
+        if (live) setPresence(found);
+      } catch {
+        /* decoration only */
+      }
+    }
+
+    tick();
+    const timer = setInterval(tick, PRESENCE_POLL_MS);
+
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [id]);
+
+  function pingTyping() {
+    const now = Date.now();
+    if (now - lastPing.current < TYPING_PING_MS) return;
+
+    lastPing.current = now;
+    conversationsApi.typing(id).catch(() => {});
+  }
+
+  // The newest thing I said, which is the only message a "Seen" line belongs
+  // under - repeating it on every message of mine would be noise.
+  const myLast = useMemo(
+    () => [...messages].reverse().find((m) => m.isMine && !m.isDeleted),
+    [messages]
+  );
+
+  const seenBy = useMemo(() => {
+    if (!myLast) return [];
+
+    const sent = new Date(myLast.sentAt).getTime();
+
+    return (presence.readers ?? []).filter(
+      (r) => r.lastReadAt && new Date(r.lastReadAt).getTime() >= sent
+    );
+  }, [myLast, presence.readers]);
+
+  const toBottom = useCallback(() => {
+    const el = scroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // Before the browser paints, not after. Done in a plain effect the newest
+  // message is drawn at the top for one frame and then yanked down, which is
+  // the flicker a real messaging app never shows you.
+  useLayoutEffect(() => {
+    // An empty list is "not loaded yet", not "opened at the bottom".
+    if (messages.length === 0) return;
+
+    if (opening.current || pinned.current) {
+      toBottom();
+      opening.current = false;
+    }
+  }, [messages, toBottom]);
+
+  // Images and files only settle their own height once they have loaded, which
+  // is after the scroll above already happened - so a thread ending in a
+  // picture would open part of the way up. Watching the content box re-pins the
+  // view every time it grows, which covers late images, an expanding text box
+  // and a reply bar appearing, without knowing about any of them.
+  useEffect(() => {
+    const el = scroller.current;
+    const inner = content.current;
+    if (!el || !inner || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      if (opening.current || pinned.current) toBottom();
+    });
+
+    observer.observe(inner);
+    observer.observe(el);
+
+    return () => observer.disconnect();
+  }, [toBottom]);
+
+  // Grown to fit, up to a point. Before the browser paints, or the box is one
+  // line tall for a frame and the whole conversation above it jumps.
+  useLayoutEffect(() => {
+    const el = composer.current;
+    if (!el) return;
+
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }, [body]);
+
+  function onScroll() {
     const el = scroller.current;
     if (!el) return;
 
-    // Opening a conversation lands at the newest message, the way every
-    // messaging app does. Set directly rather than scrolled into view, so
-    // it is already there rather than travelling there while you watch.
-    if (atFirstPaint.current) {
-      el.scrollTop = el.scrollHeight;
-      atFirstPaint.current = false;
-      return;
-    }
-
-    // After that, only follow new messages if you were already near the
-    // bottom. Somebody reading back through history should not be yanked
-    // away every time another person types.
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
-    if (nearBottom) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+    // A little slack, so "at the bottom" survives one notch of a wheel and the
+    // half-pixel heights that zoomed-in browsers produce.
+    pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
 
   async function send(e) {
     e.preventDefault();
 
     const text = body.trim();
-    if (!text) return;
+    if (!text && pendingFiles.length === 0) return;
 
     setSending(true);
     setError("");
 
     try {
-      const message = await conversationsApi.send(id, text, replyTo?.id);
+      // Files go with whatever was typed, as one message - which is why they
+      // wait in the tray rather than sending themselves the moment they are
+      // chosen, and why all of them go in a single request.
+      const message =
+        pendingFiles.length > 0
+          ? await conversationsApi.sendAttachment(id, pendingFiles, text)
+          : await conversationsApi.send(id, text, replyTo?.id);
+
       setMessages((current) => [...current, message]);
       setBody("");
+      setPendingFiles([]);
       setReplyTo(null);
+
+      // Forgotten, so the next keystroke after sending pings straight away
+      // rather than waiting out a throttle started before the message went.
+      lastPing.current = 0;
       onChanged?.();
     } catch (err) {
       setError(err.message);
     } finally {
       setSending(false);
+      if (fileInput.current) fileInput.current.value = "";
     }
   }
 
@@ -437,27 +1029,6 @@ function Thread({ conversation, me, onChanged, onClosed }) {
       onChanged?.();
     } catch (err) {
       setError(err.message);
-    }
-  }
-
-  /** Whatever is already typed rides along as the caption. */
-  async function attach(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setAttaching(true);
-    setError("");
-
-    try {
-      const message = await conversationsApi.sendAttachment(id, file, body.trim());
-      setMessages((current) => [...current, message]);
-      setBody("");
-      onChanged?.();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setAttaching(false);
-      if (fileInput.current) fileInput.current.value = "";
     }
   }
 
@@ -484,69 +1055,43 @@ function Thread({ conversation, me, onChanged, onClosed }) {
             <p className="truncate font-medium text-slate-900">{conversation.title}</p>
             <p className="truncate text-xs text-slate-500">
               {conversation.isGroup
-                ? conversation.description ||
-                  `${conversation.members.length + 1} people`
+                ? conversation.description || `${conversation.members.length + 1} people`
                 : conversation.members[0]?.school || "Direct message"}
             </p>
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1">
           <button
-            onClick={() =>
-              act(() => conversationsApi.setMuted(id, !conversation.isMuted))
-            }
-            title={conversation.isMuted ? "Unmute" : "Mute"}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            onClick={() => act(() => conversationsApi.setMuted(id, !conversation.isMuted))}
+            title={conversation.isMuted ? "Unmute this chat" : "Mute this chat"}
+            aria-label={conversation.isMuted ? "Unmute this chat" : "Mute this chat"}
+            aria-pressed={conversation.isMuted}
+            className={`rounded-md p-2 transition hover:bg-slate-100 ${
+              conversation.isMuted ? "text-slate-400" : "text-slate-600"
+            }`}
           >
-            {conversation.isMuted ? "Unmute" : "Mute"}
+            <BellIcon muted={conversation.isMuted} />
           </button>
 
           {conversation.isGroup && (
             <button
-              onClick={() => setPanelOpen((v) => !v)}
-              aria-expanded={panelOpen}
-              className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              onClick={() => setSettingsOpen(true)}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
             >
-              <svg
-                width="15" height="15" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                strokeLinejoin="round" aria-hidden="true"
-              >
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-
-              {conversation.members.length + 1} people
-
-              <svg
-                width="12" height="12" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-                strokeLinejoin="round" aria-hidden="true"
-                className={`transition ${panelOpen ? "rotate-180" : ""}`}
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
+              {canManage ? "Group settings" : "Group info"}
             </button>
           )}
         </div>
       </div>
 
-      {panelOpen && conversation.isGroup && (
-        <GroupPanel
-          conversation={conversation}
-          me={me}
-          onChanged={async () => {
-            await load(false);
-            onChanged?.();
-          }}
-          onLeft={onClosed}
-          onError={setError}
-        />
-      )}
-
-      <div ref={scroller} className="min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-4">
+      <div
+        ref={scroller}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+      >
+        {/* One box around the whole list, so its height can be watched. */}
+        <div ref={content} className="space-y-1">
         {!ready ? (
           <p className="text-sm text-slate-500">Loading...</p>
         ) : messages.length === 0 ? (
@@ -574,26 +1119,45 @@ function Thread({ conversation, me, onChanged, onClosed }) {
                 )}
 
                 <MessageRow
-              message={message}
-              previous={previous}
-              conversationId={id}
-              isGroup={conversation.isGroup}
-              canModerate={canManage}
-              onReply={() => setReplyTo(message)}
-              onReact={(emoji) =>
-                act(() => conversationsApi.react(id, message.id, emoji))
-              }
-              onEdit={(text) =>
-                act(() => conversationsApi.editMessage(id, message.id, text))
-              }
-              onDelete={() =>
-                act(() => conversationsApi.deleteMessage(id, message.id))
-              }
+                  message={message}
+                  previous={previous}
+                  conversationId={id}
+                  isGroup={conversation.isGroup}
+                  editing={editingId === message.id}
+                  onStartEdit={() => setEditingId(message.id)}
+                  onStopEdit={() => setEditingId(null)}
+                  onEdit={(text) =>
+                    act(() => conversationsApi.editMessage(id, message.id, text))
+                  }
+                  onReact={(emoji) => act(() => conversationsApi.react(id, message.id, emoji))}
+                  onMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY, message });
+                  }}
                 />
               </div>
             );
           })
         )}
+
+        {/* Under the newest thing I said, and nowhere else. */}
+        {myLast && (
+          <p className="pt-0.5 text-right text-[11px] text-slate-400">
+            {seenBy.length === 0
+              ? "Sent"
+              : conversation.isGroup
+              ? `Seen by ${seenBy.length}`
+              : "Seen"}
+          </p>
+        )}
+
+        {presence.typing?.length > 0 && (
+          <TypingBubble
+            names={presence.typing.map((t) => t.firstName)}
+            isGroup={conversation.isGroup}
+          />
+        )}
+        </div>
       </div>
 
       {error && (
@@ -617,7 +1181,46 @@ function Thread({ conversation, me, onChanged, onClosed }) {
         </div>
       )}
 
-      <form onSubmit={send} className="relative flex shrink-0 items-center gap-2 border-t border-slate-200 p-3">
+      {pendingFiles.length > 0 && (
+        <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-2">
+          <p className="text-xs text-slate-500">
+            {pendingFiles.length === 1 ? "1 file" : `${pendingFiles.length} files`} ready
+            — add a message if you want, then Send.
+          </p>
+
+          <ul className="mt-1 max-h-28 space-y-1 overflow-y-auto">
+            {pendingFiles.map((file, i) => (
+              // Keyed by position as well as name: picking the same file twice
+              // is allowed, and the names alone would collide.
+              <li
+                key={`${file.name}-${i}`}
+                className="flex items-center justify-between gap-3"
+              >
+                <span className="min-w-0 truncate text-xs text-slate-600">
+                  <span className="font-medium">{file.name}</span>{" "}
+                  <span className="text-slate-400">({formatSize(file.size)})</span>
+                </span>
+
+                <button
+                  type="button"
+                  aria-label={`Remove ${file.name}`}
+                  onClick={() =>
+                    setPendingFiles((current) => current.filter((_, at) => at !== i))
+                  }
+                  className="shrink-0 text-sm text-slate-500 hover:text-red-600"
+                >
+                  &times;
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <form
+        onSubmit={send}
+        className="relative flex shrink-0 items-end gap-1 border-t border-slate-200 p-3"
+      >
         <div className="relative">
           <button
             type="button"
@@ -639,10 +1242,9 @@ function Thread({ conversation, me, onChanged, onClosed }) {
         <button
           type="button"
           onClick={() => fileInput.current?.click()}
-          disabled={attaching}
           aria-label="Attach a file"
-          title="Attach an image or file"
-          className="rounded-md px-2 py-1.5 text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
+          title="Attach images or files"
+          className="rounded-md px-2 py-1.5 text-slate-500 transition hover:bg-slate-100"
         >
           <svg
             width="20" height="20" viewBox="0 0 24 24" fill="none"
@@ -656,26 +1258,149 @@ function Thread({ conversation, me, onChanged, onClosed }) {
         <input
           ref={fileInput}
           type="file"
+          multiple
           accept="image/jpeg,image/png,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.zip"
-          onChange={attach}
+          onChange={(e) => {
+            const chosen = Array.from(e.target.files ?? []);
+
+            // Added to what is already waiting rather than replacing it, so you
+            // can pick from two folders in a row. Then cleared, because
+            // choosing the same file again fires no change event otherwise.
+            setPendingFiles((current) =>
+              [...current, ...chosen].slice(0, MAX_ATTACHMENTS)
+            );
+            e.target.value = "";
+          }}
           className="hidden"
         />
 
-        <input
+        <textarea
+          ref={composer}
+          rows={1}
           value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder={attaching ? "Sending file..." : "Message"}
+          onChange={(e) => {
+            setBody(e.target.value);
+            pingTyping();
+          }}
+          onKeyDown={(e) => {
+            // Enter sends, Shift+Enter starts a new line - the arrangement
+            // every messaging app uses. isComposing is checked because an IME
+            // uses Enter to choose a word, and without it typing in Japanese or
+            // Chinese would fire off a message mid-word.
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              send(e);
+            }
+          }}
+          placeholder={pendingFiles.length > 0 ? "Add a message (optional)" : "Message"}
           maxLength={4000}
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          className="ml-1 max-h-32 flex-1 resize-none overflow-y-auto rounded-md border border-slate-300 px-3 py-2 text-sm leading-5 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
         />
+
         <button
           type="submit"
-          disabled={sending || !body.trim()}
+          disabled={sending || (!body.trim() && pendingFiles.length === 0)}
           className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
         >
-          Send
+          {sending ? "Sending..." : "Send"}
         </button>
       </form>
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          header={
+            <div className="flex items-center gap-0.5 px-1.5 pb-1">
+              {QUICK_REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  title={`React ${emoji}`}
+                  aria-label={`React ${emoji}`}
+                  onClick={() => {
+                    const target = menu.message.id;
+                    setMenu(null);
+                    act(() => conversationsApi.react(id, target, emoji));
+                  }}
+                  className="rounded-full px-1.5 py-1 text-lg leading-none transition hover:bg-slate-100"
+                >
+                  {emoji}
+                </button>
+              ))}
+
+              {/* Anything not in the row above. Placed here rather than as a
+                  menu line, because it belongs with the emoji it extends. */}
+              <button
+                type="button"
+                title="More emoji"
+                aria-label="More emoji"
+                onClick={() => {
+                  // Clamped so the picker, which opens upward and is 18rem
+                  // wide, cannot open off the top or the right of the window.
+                  setPicker({
+                    x: Math.min(menu.x, window.innerWidth - 300),
+                    y: Math.max(menu.y, 380),
+                    message: menu.message,
+                  });
+                  setMenu(null);
+                }}
+                className="ml-1 rounded-full border border-slate-200 px-2 py-1 text-sm font-medium leading-none text-slate-500 transition hover:bg-slate-100"
+              >
+                +
+              </button>
+            </div>
+          }
+          items={[
+            { label: "Reply", onClick: () => setReplyTo(menu.message) },
+            menu.message.isMine &&
+              !menu.message.isDeleted && {
+                label: "Edit",
+                onClick: () => setEditingId(menu.message.id),
+              },
+            (menu.message.isMine || canManage) &&
+              !menu.message.isDeleted && {
+                label: "Delete",
+                danger: true,
+                onClick: () =>
+                  confirm("Delete this message?") &&
+                  act(() => conversationsApi.deleteMessage(id, menu.message.id)),
+              },
+          ].filter(Boolean)}
+        />
+      )}
+
+      {/* Lives here, beside the menu that opens it - `picker` is Thread's own
+          state, and the page around Thread cannot see it. */}
+      {picker && (
+        <div className="fixed z-50" style={{ left: picker.x, top: picker.y }}>
+          <EmojiPicker
+            onClose={() => setPicker(null)}
+            onPick={(emoji) => {
+              const target = picker.message.id;
+              setPicker(null);
+              act(() => conversationsApi.react(id, target, emoji));
+            }}
+          />
+        </div>
+      )}
+
+      {settingsOpen && (
+        <GroupSettings
+          conversation={conversation}
+          me={me}
+          onChanged={async () => {
+            await load(false);
+            onChanged?.();
+          }}
+          onLeft={() => {
+            setSettingsOpen(false);
+            onClosed?.();
+          }}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -683,8 +1408,6 @@ function Thread({ conversation, me, onChanged, onClosed }) {
 /* -------------------------------------------------------------- attachment */
 
 /**
- * One file on a message.
- *
  * Images are fetched as blobs for the same reason avatars are: they sit behind
  * the bearer token, so an <img src> at the API comes back 401. Everything else
  * is a download link, and the server refuses to serve it inline regardless of
@@ -733,9 +1456,16 @@ function AttachmentView({ conversationId, attachment }) {
       const link = document.createElement("a");
       link.href = blobUrl;
       link.download = attachment.fileName;
-      link.click();
 
-      URL.revokeObjectURL(blobUrl);
+      // Appended before the click: a detached link does nothing in Firefox.
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      // Released on the next tick rather than immediately. Revoking in the same
+      // turn can cut the download off before the browser has finished reading
+      // the blob, which looks exactly like a file that failed to save.
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
     } catch {
       setFailed(true);
     }
@@ -747,13 +1477,27 @@ function AttachmentView({ conversationId, attachment }) {
     }
 
     return url ? (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={url}
-        alt={attachment.fileName}
-        onClick={() => window.open(url, "_blank", "noopener")}
-        className="max-h-64 cursor-zoom-in rounded-lg border border-slate-200 object-contain"
-      />
+      <span className="group relative inline-block">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt={attachment.fileName}
+          onClick={() => window.open(url, "_blank", "noopener")}
+          className="block max-h-64 cursor-zoom-in rounded-lg border border-slate-200 object-contain"
+        />
+
+        {/* Its own control, because clicking the picture opens it full size -
+            one target cannot mean both "look closer" and "keep this". */}
+        <button
+          type="button"
+          onClick={download}
+          title={`Download ${attachment.fileName}`}
+          aria-label={`Download ${attachment.fileName}`}
+          className="absolute right-2 top-2 rounded-md bg-white/90 p-1.5 text-slate-700 opacity-0 shadow transition hover:bg-white focus:opacity-100 group-hover:opacity-100"
+        >
+          <DownloadIcon />
+        </button>
+      </span>
     ) : (
       <div className="h-32 w-48 animate-pulse rounded-lg bg-slate-100" />
     );
@@ -773,13 +1517,18 @@ function AttachmentView({ conversationId, attachment }) {
         <path d="M14 2v6h6" />
       </svg>
 
-      <span className="min-w-0">
+      <span className="min-w-0 flex-1">
         <span className="block truncate font-medium text-slate-800">
           {attachment.fileName}
         </span>
         <span className="block text-xs text-slate-500">
           {formatSize(attachment.sizeBytes)}
         </span>
+      </span>
+
+      {/* The card was already a download; nothing said so. */}
+      <span className="shrink-0 text-slate-400" aria-hidden="true">
+        <DownloadIcon />
       </span>
     </button>
   );
@@ -799,22 +1548,23 @@ function MessageRow({
   previous,
   conversationId,
   isGroup,
-  canModerate,
-  onReply,
-  onReact,
+  editing,
+  onStartEdit,
+  onStopEdit,
   onEdit,
-  onDelete,
+  onReact,
+  onMenu,
 }) {
-  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body);
-  const [reactOpen, setReactOpen] = useState(false);
+
+  useEffect(() => {
+    if (editing) setDraft(message.body);
+  }, [editing, message.body]);
 
   // The app narrating a change to the group, not somebody talking. Centred and
   // quiet so it reads as a note rather than a message from a person.
   if (message.kind === 1) {
-    return (
-      <p className="py-1 text-center text-xs text-slate-400">{message.body}</p>
-    );
+    return <p className="py-1 text-center text-xs text-slate-400">{message.body}</p>;
   }
 
   // Only label a sender when it changes, so a run of messages from one person
@@ -827,27 +1577,28 @@ function MessageRow({
         onSubmit={(e) => {
           e.preventDefault();
           if (draft.trim()) onEdit(draft.trim());
-          setEditing(false);
+          onStopEdit();
         }}
         className="flex justify-end gap-2 py-1"
       >
-        <input
+        <textarea
           autoFocus
+          rows={2}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          className="w-2/3 rounded-md border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              if (draft.trim()) onEdit(draft.trim());
+              onStopEdit();
+            }
+          }}
+          className="w-2/3 resize-none rounded-md border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
         />
         <button type="submit" className="text-sm font-medium text-indigo-600">
           Save
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            setDraft(message.body);
-            setEditing(false);
-          }}
-          className="text-sm text-slate-500"
-        >
+        <button type="button" onClick={onStopEdit} className="text-sm text-slate-500">
           Cancel
         </button>
       </form>
@@ -855,8 +1606,11 @@ function MessageRow({
   }
 
   return (
-    <div className={`group flex ${message.isMine ? "justify-end" : "justify-start"}`}>
-      <div className="max-w-[80%]">
+    <div className={`flex ${message.isMine ? "justify-end" : "justify-start"}`}>
+      {/* Right-click rather than hover controls: a message that changes shape
+          as the pointer crosses it is distracting to read past, and there is no
+          hover at all on a touchscreen. */}
+      <div className="max-w-[80%]" onContextMenu={onMenu}>
         {isGroup && !message.isMine && newSender && (
           <p className="mb-0.5 text-xs font-medium text-slate-500">{message.senderName}</p>
         )}
@@ -880,8 +1634,8 @@ function MessageRow({
           </div>
         )}
 
-        {/* A file sent on its own has no caption, and an empty bubble under
-            it would just be a coloured smudge. */}
+        {/* A file sent on its own has no caption, and an empty bubble under it
+            would just be a coloured smudge. */}
         {(message.body || message.isDeleted) && (
           <div
             className={`rounded-2xl px-3 py-2 text-sm ${
@@ -892,7 +1646,12 @@ function MessageRow({
                 : "bg-slate-100 text-slate-900"
             }`}
           >
-            {message.isDeleted ? "Message deleted" : message.body}
+            {/* pre-wrap so the line breaks somebody typed survive, break-words
+                so one long unbroken string cannot stretch the bubble off the
+                side of the conversation. */}
+            <span className="whitespace-pre-wrap break-words">
+              {message.isDeleted ? "Message deleted" : message.body}
+            </span>
           </div>
         )}
 
@@ -915,383 +1674,18 @@ function MessageRow({
           </div>
         )}
 
-        <div
+        <p
           className={`mt-0.5 flex items-center gap-2 text-[11px] text-slate-400 ${
             message.isMine ? "justify-end" : ""
           }`}
         >
           <span>{timeLabel(message.sentAt)}</span>
 
-          {/* Always shown, never hidden. An edit that leaves no trace is a way
-              to rewrite what somebody remembers being said. */}
+          {/* Always shown. An edit that leaves no trace is a way to rewrite what
+              somebody remembers being said. */}
           {message.isEdited && !message.isDeleted && <span>edited</span>}
-
-          {!message.isDeleted && (
-            <span className="relative hidden gap-2 group-hover:flex">
-              <button
-                onClick={() => setReactOpen((v) => !v)}
-                className="hover:text-slate-700"
-              >
-                React
-              </button>
-
-              {reactOpen && (
-                <div className="absolute bottom-full right-0 z-30 mb-1 flex gap-0.5 rounded-full border border-slate-200 bg-white px-1.5 py-1 shadow-lg">
-                  {QUICK_REACTIONS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      onClick={() => {
-                        onReact(emoji);
-                        setReactOpen(false);
-                      }}
-                      className="rounded-full px-1 text-base transition hover:bg-slate-100"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <button onClick={onReply} className="hover:text-slate-700">
-                Reply
-              </button>
-
-              {message.isMine && (
-                <button onClick={() => setEditing(true)} className="hover:text-slate-700">
-                  Edit
-                </button>
-              )}
-
-              {(message.isMine || canModerate) && (
-                <button
-                  onClick={() => confirm("Delete this message?") && onDelete()}
-                  className="hover:text-red-600"
-                >
-                  Delete
-                </button>
-              )}
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------- group panel */
-
-function GroupPanel({ conversation, me, onChanged, onLeft, onError }) {
-  const [members, setMembers] = useState([]);
-  const [connections, setConnections] = useState([]);
-  const [filter, setFilter] = useState("");
-  const [adding, setAdding] = useState([]);
-  const [editingName, setEditingName] = useState(false);
-  const [name, setName] = useState(conversation.title);
-  const [description, setDescription] = useState(conversation.description ?? "");
-  const [busy, setBusy] = useState(false);
-
-  const photoInput = useRef(null);
-  const id = conversation.id;
-
-  const myRole = conversation.myRole;
-  const isOwner = myRole === ROLE.OWNER;
-  const canManage = myRole >= ROLE.ADMIN;
-
-  const load = useCallback(async () => {
-    try {
-      setMembers(await conversationsApi.members(id));
-    } catch (err) {
-      onError(err.message);
-    }
-  }, [id, onError]);
-
-  useEffect(() => {
-    load();
-    if (canManage) connectionsApi.list().then(setConnections).catch(() => {});
-  }, [load, canManage]);
-
-  async function act(fn) {
-    setBusy(true);
-
-    try {
-      await fn();
-      await load();
-      await onChanged();
-    } catch (err) {
-      onError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function uploadPhoto(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    await act(async () => {
-      await conversationsApi.uploadGroupPhoto(id, file);
-
-      // The cached blob is keyed by conversation id, so without this the old
-      // picture stays on screen until a full reload.
-      forgetPhoto(id, "group");
-    });
-
-    if (photoInput.current) photoInput.current.value = "";
-  }
-
-  // Anyone already in the group, or already invited, is not offered again.
-  const invitable = filterStudents(
-    connections.filter((person) => !members.some((m) => m.student.id === person.id)),
-    filter
-  );
-
-  return (
-    <div className="max-h-72 shrink-0 overflow-y-auto border-b border-slate-200 bg-slate-50 px-4 py-3">
-      {canManage && (
-        <div className="mb-4">
-          {editingName ? (
-            <div className="space-y-2">
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={100}
-                placeholder="Group name"
-                className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
-              />
-              <input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                maxLength={300}
-                placeholder="What is this group for? (optional)"
-                className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
-              />
-              <div className="flex gap-2">
-                <button
-                  disabled={busy || !name.trim()}
-                  onClick={() =>
-                    act(async () => {
-                      await conversationsApi.updateGroup(id, name.trim(), description.trim());
-                      setEditingName(false);
-                    })
-                  }
-                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={() => {
-                    setName(conversation.title);
-                    setDescription(conversation.description ?? "");
-                    setEditingName(false);
-                  }}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setEditingName(true)}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Edit name and description
-              </button>
-              <button
-                onClick={() => photoInput.current?.click()}
-                disabled={busy}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                {conversation.hasPhoto ? "Change photo" : "Add photo"}
-              </button>
-              <input
-                ref={photoInput}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={uploadPhoto}
-                className="hidden"
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">People</p>
-
-      <ul className="mt-2 space-y-1">
-        {members.map((member) => {
-          const them = member.student;
-          const pending = Boolean(member.invitedByName);
-          const isMe = them.id === me?.id;
-
-          return (
-            <li
-              key={them.id}
-              className="flex flex-wrap items-center gap-2 rounded-md bg-white px-2 py-1.5"
-            >
-              <Avatar student={them} size={28} />
-
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-slate-800">
-                  {them.firstName} {them.lastName}
-                  {isMe && <span className="text-slate-400"> (you)</span>}
-                </p>
-                {pending && (
-                  <p className="truncate text-xs text-slate-500">
-                    Invited by {member.invitedByName} — not joined yet
-                  </p>
-                )}
-              </div>
-
-              {member.role > ROLE.MEMBER && !pending && (
-                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                  {ROLE_LABEL[member.role]}
-                </span>
-              )}
-
-              {/* Owner-only, because if admins could promote each other then
-                  anyone reaching admin could make themselves owner. */}
-              {isOwner && !isMe && !pending && (
-                <div className="flex shrink-0 gap-2 text-xs">
-                  {member.role === ROLE.MEMBER ? (
-                    <button
-                      disabled={busy}
-                      onClick={() => act(() => conversationsApi.setRole(id, them.id, ROLE.ADMIN))}
-                      className="text-indigo-600 hover:underline"
-                    >
-                      Make admin
-                    </button>
-                  ) : (
-                    <button
-                      disabled={busy}
-                      onClick={() => act(() => conversationsApi.setRole(id, them.id, ROLE.MEMBER))}
-                      className="text-slate-500 hover:underline"
-                    >
-                      Remove admin
-                    </button>
-                  )}
-
-                  <button
-                    disabled={busy}
-                    onClick={() =>
-                      confirm(
-                        `Make ${them.firstName} the owner? You become an admin and cannot undo this yourself.`
-                      ) && act(() => conversationsApi.setRole(id, them.id, ROLE.OWNER))
-                    }
-                    className="text-slate-500 hover:underline"
-                  >
-                    Make owner
-                  </button>
-                </div>
-              )}
-
-              {canManage && !isMe && member.role !== ROLE.OWNER && (
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    confirm(`Remove ${them.firstName} from the group?`) &&
-                    act(() => conversationsApi.removeMember(id, them.id))
-                  }
-                  className="shrink-0 text-xs text-slate-400 hover:text-red-600"
-                >
-                  Remove
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-
-      {canManage && (
-        <div className="mt-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-            Invite {adding.length > 0 && `— ${adding.length} selected`}
-          </p>
-
-          {connections.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-500">
-              You have no connections left to invite.
-            </p>
-          ) : (
-            <>
-              {connections.length > 5 && (
-                <input
-                  type="search"
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  placeholder="Search connections"
-                  className="mt-2 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
-                />
-              )}
-
-              <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
-                {/* Anyone already ticked stays listed even when the filter would
-                    hide them, or typing a name looks like it un-selected them. */}
-                {connections
-                  .filter(
-                    (person) =>
-                      adding.includes(person.id) ||
-                      invitable.some((p) => p.id === person.id)
-                  )
-                  .map((person) => (
-                    <li key={person.id}>
-                      <label className="flex items-center gap-2 rounded-md bg-white px-2 py-1.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={adding.includes(person.id)}
-                          onChange={() =>
-                            setAdding((current) =>
-                              current.includes(person.id)
-                                ? current.filter((x) => x !== person.id)
-                                : [...current, person.id]
-                            )
-                          }
-                        />
-                        <Avatar student={person} size={24} />
-                        <span className="text-slate-700">
-                          {person.firstName} {person.lastName}
-                        </span>
-                      </label>
-                    </li>
-                  ))}
-              </ul>
-
-              <button
-                disabled={busy || adding.length === 0}
-                onClick={() =>
-                  act(async () => {
-                    await conversationsApi.invite(id, adding);
-                    setAdding([]);
-                  })
-                }
-                className="mt-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-              >
-                Send {adding.length || ""} invitation{adding.length === 1 ? "" : "s"}
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      <button
-        onClick={() =>
-          confirm(`Leave “${conversation.title}”?`) &&
-          conversationsApi
-            .leave(id)
-            .then(onLeft)
-            .catch((err) => onError(err.message))
-        }
-        className="mt-4 text-sm font-medium text-red-600 hover:underline"
-      >
-        Leave group
-      </button>
-
-      {isOwner && (
-        <p className="mt-1 text-xs text-slate-500">
-          You own this group. If you leave, the longest-serving admin takes it over.
         </p>
-      )}
+      </div>
     </div>
   );
 }
@@ -1301,11 +1695,14 @@ function GroupPanel({ conversation, me, onChanged, onLeft, onError }) {
 function NewGroup({ onClose, onCreated }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [photo, setPhoto] = useState(null);
   const [people, setPeople] = useState([]);
   const [chosen, setChosen] = useState([]);
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const photoInput = useRef(null);
 
   useEffect(() => {
     connectionsApi.list().then(setPeople).catch((err) => setError(err.message));
@@ -1323,114 +1720,183 @@ function NewGroup({ onClose, onCreated }) {
     setError("");
 
     try {
-      onCreated(
-        await conversationsApi.createGroup(name.trim(), chosen, description.trim())
+      const conversation = await conversationsApi.createGroup(
+        name.trim(),
+        chosen,
+        description.trim()
       );
+
+      // Uploaded after the group exists, because there is nothing to attach it
+      // to until then. A failure here is not worth losing the group over - the
+      // picture can be set again from Group settings.
+      if (photo) {
+        try {
+          await conversationsApi.uploadGroupPhoto(conversation.id, photo);
+          forgetPhoto(conversation.id, "group");
+        } catch {
+          // Deliberately swallowed; the group was created successfully.
+        }
+      }
+
+      onCreated(conversation);
     } catch (err) {
       setError(err.message);
       setBusy(false);
     }
   }
 
+  const field =
+    "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-6 py-6">
       <button
         aria-label="Close"
         onClick={onClose}
-        className="absolute inset-0 h-full w-full bg-slate-900/20"
+        className="absolute inset-0 h-full w-full bg-slate-900/25"
       />
 
       <form
         onSubmit={create}
-        className="relative w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+        className="relative flex max-h-full w-full max-w-md flex-col rounded-xl border border-slate-200 bg-white shadow-xl"
       >
-        <h2 className="font-medium text-slate-900">New group</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          You will own it. Everyone you pick gets an invitation to accept.
-        </p>
-
-        {error && (
-          <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
+        <div className="shrink-0 border-b border-slate-200 px-6 py-4">
+          <h2 className="font-medium text-slate-900">New group</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            You will own it. Everyone you pick gets an invitation to accept.
           </p>
-        )}
+        </div>
 
-        <label className="mt-4 block text-sm font-medium text-slate-700">Name</label>
-        <input
-          required
-          autoFocus
-          maxLength={100}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="CS 201 study group"
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-        />
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          {error && (
+            <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </p>
+          )}
 
-        <label className="mt-3 block text-sm font-medium text-slate-700">
-          Description <span className="font-normal text-slate-400">(optional)</span>
-        </label>
-        <input
-          maxLength={300}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Weekly problem sets and exam prep"
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-        />
+          <div className="flex items-center gap-4">
+            {photo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={URL.createObjectURL(photo)}
+                alt=""
+                className="h-16 w-16 rounded-full object-cover"
+              />
+            ) : (
+              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-xl text-slate-400">
+                #
+              </span>
+            )}
 
-        <p className="mt-4 text-sm font-medium text-slate-700">
-          Who to invite{chosen.length > 0 && ` — ${chosen.length} selected`}
-        </p>
-        <p className="mt-0.5 text-xs text-slate-500">
-          Only people you are connected with can be invited.
-        </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => photoInput.current?.click()}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                {photo ? "Change photo" : "Add photo"}
+              </button>
 
-        {people.length > 5 && (
+              {photo && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhoto(null);
+                    if (photoInput.current) photoInput.current.value = "";
+                  }}
+                  className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:text-red-600"
+                >
+                  Remove
+                </button>
+              )}
+
+              <input
+                ref={photoInput}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(e) => setPhoto(e.target.files?.[0] ?? null)}
+                className="hidden"
+              />
+            </div>
+          </div>
+
+          <label className="mt-4 block text-sm font-medium text-slate-700">Name</label>
           <input
-            type="search"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Search connections"
-            className="mt-2 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
+            required
+            autoFocus
+            maxLength={100}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="CS 201 study group"
+            className={field}
           />
-        )}
 
-        {people.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">
-            You have no connections yet, so there is nobody to invite.
+          <label className="mt-3 block text-sm font-medium text-slate-700">
+            Description <span className="font-normal text-slate-400">(optional)</span>
+          </label>
+          <input
+            maxLength={300}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Weekly problem sets and exam prep"
+            className={field}
+          />
+
+          <p className="mt-4 text-sm font-medium text-slate-700">
+            Who to invite{chosen.length > 0 && ` — ${chosen.length} selected`}
           </p>
-        ) : (
-          <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto">
-            {people
-              .filter(
-                (person) =>
-                  chosen.includes(person.id) ||
-                  filterStudents([person], filter).length > 0
-              )
-              .map((person) => (
-                <li key={person.id}>
-                  <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={chosen.includes(person.id)}
-                      onChange={() => toggle(person.id)}
-                    />
-                    <Avatar student={person} size={24} />
-                    <span className="text-slate-700">
-                      {person.firstName} {person.lastName}
-                    </span>
-                  </label>
-                </li>
-              ))}
-          </ul>
-        )}
+          <p className="mt-0.5 text-xs text-slate-500">
+            Only people you are connected with can be invited.
+          </p>
 
-        <div className="mt-5 flex gap-2">
+          {people.length > 5 && (
+            <input
+              type="search"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Search connections"
+              className={field}
+            />
+          )}
+
+          {people.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-500">
+              You have no connections yet, so there is nobody to invite.
+            </p>
+          ) : (
+            <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
+              {people
+                .filter(
+                  (person) =>
+                    chosen.includes(person.id) ||
+                    filterStudents([person], filter).length > 0
+                )
+                .map((person) => (
+                  <li key={person.id}>
+                    <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={chosen.includes(person.id)}
+                        onChange={() => toggle(person.id)}
+                      />
+                      <Avatar student={person} size={24} />
+                      <span className="text-slate-700">
+                        {person.firstName} {person.lastName}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="flex shrink-0 gap-2 border-t border-slate-200 px-6 py-4">
           <button
             type="submit"
             disabled={busy || chosen.length === 0 || !name.trim()}
             className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
           >
-            {busy ? "Creating..." : "Create"}
+            {busy ? "Creating..." : "Create group"}
           </button>
           <button
             type="button"

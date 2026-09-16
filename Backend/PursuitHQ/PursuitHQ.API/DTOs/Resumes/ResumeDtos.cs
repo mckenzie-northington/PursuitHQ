@@ -40,6 +40,16 @@ namespace PursuitHQ.API.DTOs.Resumes
         public List<ProjectDto> Projects { get; set; } = new();
 
         /// <summary>
+        /// Clubs, societies, teams, volunteering.
+        ///
+        /// Reuses ExperienceDto rather than getting a near-identical class of
+        /// its own: a role, an organisation, dates and bullets is exactly the
+        /// same shape, and a second copy would be one more place to forget
+        /// when that shape changes.
+        /// </summary>
+        public List<ExperienceDto> ExtraCurricular { get; set; } = new();
+
+        /// <summary>
         /// Skills as free text, typed however the student likes.
         ///
         /// Stored as plain text, not HTML. The only markup is ** for bold and a

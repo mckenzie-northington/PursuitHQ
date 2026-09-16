@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PursuitHQ.API.Data;
@@ -11,9 +12,11 @@ using PursuitHQ.API.Data;
 namespace PursuitHQ.API.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260916114931_AddGroupRolesAndInvitations")]
+    partial class AddGroupRolesAndInvitations
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -841,74 +844,6 @@ namespace PursuitHQ.API.Migrations
                     b.HasIndex("ConversationId", "Id");
 
                     b.ToTable("Messages");
-                });
-
-            modelBuilder.Entity("PursuitHQ.API.Models.MessageAttachment", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsImage")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("MessageId")
-                        .HasColumnType("integer");
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("StoragePath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MessageId");
-
-                    b.ToTable("MessageAttachments");
-                });
-
-            modelBuilder.Entity("PursuitHQ.API.Models.MessageReaction", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Emoji")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("MessageId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("MessageId", "UserId", "Emoji")
-                        .IsUnique();
-
-                    b.ToTable("MessageReactions");
                 });
 
             modelBuilder.Entity("PursuitHQ.API.Models.Note", b =>
@@ -1844,36 +1779,6 @@ namespace PursuitHQ.API.Migrations
                     b.Navigation("Sender");
                 });
 
-            modelBuilder.Entity("PursuitHQ.API.Models.MessageAttachment", b =>
-                {
-                    b.HasOne("PursuitHQ.API.Models.Message", "Message")
-                        .WithMany("Attachments")
-                        .HasForeignKey("MessageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Message");
-                });
-
-            modelBuilder.Entity("PursuitHQ.API.Models.MessageReaction", b =>
-                {
-                    b.HasOne("PursuitHQ.API.Models.Message", "Message")
-                        .WithMany("Reactions")
-                        .HasForeignKey("MessageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("PursuitHQ.API.Models.ApplicationUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Message");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("PursuitHQ.API.Models.Note", b =>
                 {
                     b.HasOne("PursuitHQ.API.Models.Course", "Course")
@@ -2199,13 +2104,6 @@ namespace PursuitHQ.API.Migrations
                     b.Navigation("Notes");
 
                     b.Navigation("StudyMaterials");
-                });
-
-            modelBuilder.Entity("PursuitHQ.API.Models.Message", b =>
-                {
-                    b.Navigation("Attachments");
-
-                    b.Navigation("Reactions");
                 });
 
             modelBuilder.Entity("PursuitHQ.API.Models.Quiz", b =>

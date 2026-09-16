@@ -254,23 +254,68 @@ export const connections = {
 };
 
 export const conversations = {
+  // --- groups -------------------------------------------------------
+  invitations: () => api.get("/api/conversations/invitations"),
+  acceptInvite: (id) => api.post(`/api/conversations/${id}/invitations/accept`, {}),
+  declineInvite: (id) => api.post(`/api/conversations/${id}/invitations/decline`, {}),
+
+  members: (id) => api.get(`/api/conversations/${id}/members`),
+  invite: (id, memberIds) =>
+    api.post(`/api/conversations/${id}/invitations`, { memberIds }),
+
+  /** "me" is accepted by the server, so leaving needs no id of your own. */
+  removeMember: (id, userId) =>
+    api.del(`/api/conversations/${id}/members/${encodeURIComponent(userId)}`),
+
+  /** Role 0 member, 1 admin, 2 owner. Setting 2 hands the group over. */
+  setRole: (id, userId, role) =>
+    api.put(`/api/conversations/${id}/members/${encodeURIComponent(userId)}/role`, { role }),
+
+  updateGroup: (id, name, description) =>
+    api.put(`/api/conversations/${id}`, { name, description }),
+
+  setMuted: (id, muted) => api.post(`/api/conversations/${id}/mute`, { muted }),
+
+  groupPhoto: (id) => fetchBlob(`/api/conversations/${id}/photo`),
+  uploadGroupPhoto: (id, file) => {
+    const form = new FormData();
+    form.append("file", file);
+    return upload(`/api/conversations/${id}/photo`, form);
+  },
+
+  // --- messages -----------------------------------------------------
   list: () => api.get("/api/conversations"),
   unread: () => api.get("/api/conversations/unread"),
   startDirect: (userId) => api.post("/api/conversations/direct", { userId }),
-  createGroup: (name, memberIds) =>
-    api.post("/api/conversations/group", { name, memberIds }),
+  createGroup: (name, memberIds, description) =>
+    api.post("/api/conversations/group", { name, memberIds, description }),
 
   messages: (id, before) =>
     api.get(`/api/conversations/${id}/messages${before ? `?before=${before}` : ""}`),
 
-  send: (id, body) => api.post(`/api/conversations/${id}/messages`, { body }),
+  send: (id, body, replyToMessageId) =>
+    api.post(`/api/conversations/${id}/messages`, { body, replyToMessageId }),
+
+  editMessage: (id, messageId, body) =>
+    api.put(`/api/conversations/${id}/messages/${messageId}`, { body }),
+
+  react: (id, messageId, emoji) =>
+    api.post(`/api/conversations/${id}/messages/${messageId}/reactions`, { emoji }),
+
+  sendAttachment: (id, file, body) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (body) form.append("body", body);
+    return upload(`/api/conversations/${id}/messages/attachment`, form);
+  },
+
+  /** Behind the bearer token, so it comes back as a blob, not an <img src>. */
+  attachment: (id, attachmentId) =>
+    fetchBlob(`/api/conversations/${id}/attachments/${attachmentId}`),
   deleteMessage: (id, messageId) =>
     api.del(`/api/conversations/${id}/messages/${messageId}`),
 
   markRead: (id) => api.post(`/api/conversations/${id}/read`, {}),
-  addMembers: (id, memberIds) => api.post(`/api/conversations/${id}/members`, { memberIds }),
-  rename: (id, name) => api.put(`/api/conversations/${id}/name`, { name }),
-
   /** Leaving is removing yourself, which the server treats as the same thing. */
   leave: (id) => api.del(`/api/conversations/${id}/members/me`),
 };

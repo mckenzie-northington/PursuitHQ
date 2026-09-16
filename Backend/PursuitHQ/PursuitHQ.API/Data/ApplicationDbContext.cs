@@ -55,6 +55,8 @@ namespace PursuitHQ.API.Data
         public DbSet<Conversation> Conversations => Set<Conversation>();
         public DbSet<ConversationMember> ConversationMembers => Set<ConversationMember>();
         public DbSet<Message> Messages => Set<Message>();
+        public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
+        public DbSet<MessageAttachment> MessageAttachments => Set<MessageAttachment>();
 
         /// <summary>
         /// Every DateTime column is PostgreSQL "timestamp with time zone", and
@@ -173,6 +175,44 @@ namespace PursuitHQ.API.Data
             // Messages are paged newest-first by id within a conversation.
             builder.Entity<Message>()
                 .HasIndex(m => new { m.ConversationId, m.Id });
+
+            // A reply points at another message in the same conversation.
+            // Restrict rather than Cascade: deleting one message must not
+            // silently take every answer to it with it, and messages are
+            // soft-deleted here anyway.
+            builder.Entity<Message>()
+                .HasOne(m => m.ReplyToMessage).WithMany()
+                .HasForeignKey(m => m.ReplyToMessageId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // The conversation list and the unread poll both filter on this.
+            builder.Entity<ConversationMember>()
+                .HasIndex(m => new { m.UserId, m.Status });
+
+            // Reactions and attachments belong to their message and mean
+            // nothing without it, so they go when it goes.
+            builder.Entity<MessageReaction>()
+                .HasOne(r => r.Message).WithMany(m => m.Reactions)
+                .HasForeignKey(r => r.MessageId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<MessageAttachment>()
+                .HasOne(a => a.Message).WithMany(m => m.Attachments)
+                .HasForeignKey(a => a.MessageId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One of each emoji per person per message. This is what makes
+            // the toggle safe - a double click cannot leave two behind.
+            builder.Entity<MessageReaction>()
+                .HasIndex(r => new { r.MessageId, r.UserId, r.Emoji })
+                .IsUnique();
+
+            // Restrict, like Message.Sender: deleting an account should not
+            // silently rewrite what everybody else reacted to.
+            builder.Entity<MessageReaction>()
+                .HasOne(r => r.User).WithMany()
+                .HasForeignKey(r => r.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             // --- Study chat -------------------------------------------------
             // Deleting a conversation takes its messages with it: a message

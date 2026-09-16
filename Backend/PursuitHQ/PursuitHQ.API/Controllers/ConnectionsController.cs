@@ -65,7 +65,7 @@ namespace PursuitHQ.API.Controllers
             PendingAsync(incoming: false, ct);
 
         [HttpPost]
-        public async Task<ActionResult<StudentCardDto>> Request(
+        public async Task<ActionResult<StudentCardDto>> SendRequest(
             ConnectionRequestDto dto, CancellationToken ct)
         {
             if (dto.AddresseeId == CurrentUserId)

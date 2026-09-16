@@ -29,6 +29,7 @@ const BUILT_INS = [
   { key: "summary", label: "Summary" },
   { key: "education", label: "Education" },
   { key: "experience", label: "Experience" },
+  { key: "extracurricular", label: "Extracurricular" },
   { key: "projects", label: "Projects" },
   { key: "skills", label: "Skills" },
 ];
@@ -49,6 +50,7 @@ function normalise(raw) {
   c.contact = c.contact ?? {};
   c.education = c.education ?? [];
   c.experience = c.experience ?? [];
+  c.extraCurricular = c.extraCurricular ?? [];
   c.projects = c.projects ?? [];
   c.skills = c.skills ?? [];
 
@@ -782,12 +784,17 @@ function SectionCard({ sectionKey, content, edit, index, count, onMoveUp, onMove
 
   const builtIn = BUILT_INS.find((s) => s.key === sectionKey);
 
-  const canAdd = sectionKey === "education" || sectionKey === "experience" || sectionKey === "projects";
+  const canAdd =
+    sectionKey === "education" ||
+    sectionKey === "experience" ||
+    sectionKey === "extracurricular" ||
+    sectionKey === "projects";
 
   function add() {
     edit((c) => {
       if (sectionKey === "education") c.education.push({ ...BLANK_EDUCATION, details: [] });
       if (sectionKey === "experience") c.experience.push({ ...BLANK_EXPERIENCE, bullets: [""] });
+      if (sectionKey === "extracurricular") c.extraCurricular.push({ ...BLANK_EXPERIENCE, bullets: [""] });
       if (sectionKey === "projects") c.projects.push({ ...BLANK_PROJECT, bullets: [""] });
       return c;
     });
@@ -932,6 +939,25 @@ function SectionBody({ sectionKey, custom, content, edit }) {
           label="What you did"
           items={entry.bullets}
           onChange={(items) => edit((c) => { c.experience[i].bullets = items; return c; })}
+        />
+      </Entry>
+    ));
+  }
+
+  if (sectionKey === "extracurricular") {
+    return content.extraCurricular.map((entry, i) => (
+      <Entry key={i} onRemove={() => edit((c) => { c.extraCurricular.splice(i, 1); return c; })}>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Field label="Role" value={entry.title} onChange={(v) => edit((c) => { c.extraCurricular[i].title = v; return c; })} placeholder="Treasurer" />
+          <Field label="Organization" value={entry.organization} onChange={(v) => edit((c) => { c.extraCurricular[i].organization = v; return c; })} placeholder="Robotics Club" />
+          <Field label="Start" value={entry.startDate} onChange={(v) => edit((c) => { c.extraCurricular[i].startDate = v; return c; })} placeholder="Sep 2025" />
+          <Field label="End" value={entry.endDate} onChange={(v) => edit((c) => { c.extraCurricular[i].endDate = v; return c; })} placeholder="Present" />
+          <Field label="Location" value={entry.location} onChange={(v) => edit((c) => { c.extraCurricular[i].location = v; return c; })} />
+        </div>
+        <Bullets
+          label="What you did"
+          items={entry.bullets}
+          onChange={(items) => edit((c) => { c.extraCurricular[i].bullets = items; return c; })}
         />
       </Entry>
     ));
@@ -1230,6 +1256,25 @@ function SheetSection({ sectionKey, content }) {
     return (
       <Section heading="Experience">
         {content.experience.map((entry, i) => (
+          <div key={i} className="resume-entry mb-2.5 last:mb-0">
+            <Line
+              left={entry.organization}
+              right={[entry.startDate, entry.endDate].filter(Boolean).join(" – ")}
+            />
+            <Line left={entry.title} right={entry.location} muted />
+            <BulletList items={entry.bullets} />
+          </div>
+        ))}
+      </Section>
+    );
+  }
+
+  if (sectionKey === "extracurricular") {
+    if (content.extraCurricular.length === 0) return null;
+
+    return (
+      <Section heading="Extracurricular">
+        {content.extraCurricular.map((entry, i) => (
           <div key={i} className="resume-entry mb-2.5 last:mb-0">
             <Line
               left={entry.organization}

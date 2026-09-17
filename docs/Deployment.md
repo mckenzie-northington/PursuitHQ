@@ -53,13 +53,14 @@ Neon's free plan gives 100 compute-hours a month and scales the compute to zero 
 
 A month is about 730 hours. **One person leaving one tab open can consume the entire monthly allowance in roughly four days**, after which the app stops until the month resets.
 
-Three mitigations, cheapest first:
+**The largest of these is already fixed.** `POST /read` used to fire on every poll whether or not anything had arrived — a database write per person per open tab every five seconds. It now writes only when the newest message id actually changed, which removes most of the write traffic. It also made "mark as unread" stick on the conversation you are looking at; the unconditional write used to undo it within five seconds.
 
-1. **Stop writing `read` on every poll.** It currently fires whether or not anything arrived; it only needs to write when the newest message id changed. A handful of lines, and it removes most write traffic.
-2. **Back off when idle.** Widen the poll interval after a minute with no new messages; snap back on activity.
-3. **SignalR.** The real answer, and what the code was structured for — `lib/useUnread.js` is the seam. Replaces nearly all of the above with one connection.
+Two mitigations remain, neither urgent at one user:
 
-Do (1) before launch regardless.
+1. **Back off when idle.** Widen the poll interval after a minute with no new messages; snap back on activity.
+2. **SignalR.** The real answer, and what the code was structured for — `lib/useUnread.js` is the seam. Replaces nearly all the polling with one connection.
+
+The reads still cost compute even though they no longer write, so watch the Neon dashboard for the first week rather than assuming the problem is gone.
 
 ### AI cost
 
@@ -105,13 +106,18 @@ Set these on the host. Never commit them.
 | `Jwt__Key` | 32+ random characters. Generate fresh: `openssl rand -base64 48`. Never the development value |
 | `Jwt__Issuer` | e.g. `https://api.yourdomain.com` |
 | `Jwt__Audience` | **`PursuitHQClient`** — must differ from the 2FA audience or two-step verification silently stops working. `Security.md` §1 |
-| `Jwt__ExpiryMinutes` | Currently `480` in appsettings. Consider lowering while the token still lives in `localStorage` |
+| `Jwt__ExpiryMinutes` | `60`. Lowered from 480 because the token still lives in `localStorage` |
 | `Cors__AllowedOrigins` | Comma-separated: `https://yourdomain.com,https://www.yourdomain.com`. Indexed keys (`__0`, `__1`) also work |
 | `Ai__ApiKey` | Gemini key |
 | `Ai__RequestsPerUserPerDay` | e.g. `20` |
 | `Email__ApiKey` | Resend key |
-| `Email__FromAddress` | e.g. `noreply@yourdomain.com` |
+| `Email__FromAddress` | `noreply@send.yourdomain.com` — the Resend **subdomain**, see §10 |
 | `Email__AppUrl` | Public frontend URL — used for links inside emails |
+| `FileStorage__Provider` | `S3` in production. Anything else means local disk |
+| `FileStorage__ServiceUrl` | `https://<account-id>.r2.cloudflarestorage.com` |
+| `FileStorage__Bucket` | R2 bucket name |
+| `FileStorage__AccessKeyId` | From an R2 API token |
+| `FileStorage__SecretAccessKey` | From an R2 API token — a secret |
 
 **Frontend (Vercel)**
 
@@ -121,7 +127,7 @@ Set these on the host. Never commit them.
 
 Anything prefixed `NEXT_PUBLIC_` is visible in the browser. Never put a secret there.
 
-**Not real — do not set these.** Earlier versions of this document listed `FileStorage__Provider`, `FileStorage__ConnectionString`, `JobSearch__AppId`/`AppKey` and `Jobs__SchedulerSecret`. No code reads any of them. The job-board feature was removed in September 2026, and reminders run in-process (§6), not via an external cron with a shared secret.
+**Not real — do not set these.** Earlier versions of this document listed `FileStorage__ConnectionString`, `JobSearch__AppId`/`AppKey` and `Jobs__SchedulerSecret`. No code reads any of them. The job-board feature was removed in September 2026, and reminders run in-process (§6), not via an external cron with a shared secret.
 
 ## 5. Database Migrations
 
@@ -163,13 +169,26 @@ Two consequences:
 - On a host that sleeps, the timer sleeps too. A reminder due during a nap goes out late, when the next request wakes the service. The keep-warm ping in §8 also keeps reminders punctual.
 - Email is queued in memory (`EmailQueue`) and sent by a background worker. **Anything still queued when the process stops is lost.** That was an acceptable trade when the queue only carried "you added a course" confirmations; it now also carries message notifications and connection requests, which matter more. Revisit when the API stops sleeping.
 
-## 7. File Storage — known limitation
+## 7. File Storage
 
-`IFileStorageService` currently writes to local disk (`FileStorage:LocalPath`, outside `wwwroot`).
+Two implementations behind `IFileStorageService`:
 
-**On an ephemeral host this loses files on every restart** — and Render's free plan restarts every time it sleeps. Profile photos, group photos and chat attachments all live there. Messages survive, because they are in the database; their attachments come back broken, which reads as data loss because it is.
+| Provider | When | Notes |
+|---|---|---|
+| `Local` | Development, and the fallback | Writes under `FileStorage:LocalPath`, outside `wwwroot`. **Loses every file when the host restarts**, which on Render's free plan is every time it sleeps |
+| `S3` | Production | Cloudflare R2, or anything else speaking the S3 API |
 
-The fix is an `IFileStorageService` implementation against Cloudflare R2's S3-compatible API. The interface was built for this. Do it before anyone else's files are in there.
+The provider is chosen at startup from `FileStorage:Provider`, and **falls back to local disk when any S3 credential is missing** rather than refusing to start — a half-configured bucket should degrade to something that works while you fix it. The startup log says which was chosen; check it, because silently writing to the wrong place is the bad outcome.
+
+The stored key format is identical between the two, so a row written by one works unchanged with the other. Only the bytes need moving.
+
+### Setting up R2
+
+1. Cloudflare dashboard → R2 → create a bucket.
+2. Create an R2 API token with **Object Read & Write** on that bucket. You get an access key id and a secret.
+3. Set the five `FileStorage__*` variables in §4. `ServiceUrl` is `https://<account-id>.r2.cloudflarestorage.com` — the account id is on the R2 overview page.
+
+Keep the bucket **private**. Nothing serves files directly from it; every download goes through an authorized endpoint, which is what keeps one student's attachments away from another's.
 
 ## 8. Health Checks
 
@@ -197,15 +216,42 @@ Typically: apex and `www` point at Vercel, and an `api` subdomain points at Rend
 
 **Put the API on a subdomain of the same registrable domain as the frontend** (`api.yourdomain.com`, not the Render hostname). Beyond looking right, it makes the planned move of the JWT into an httpOnly cookie far simpler: a cookie scoped to the parent domain with `SameSite=Lax`, instead of the fragile cross-site `SameSite=None` that unrelated domains would force.
 
-## 10. Email Deliverability
+## 10. Email — sending and receiving
 
-Verify your domain with Resend and add the SPF and DKIM records it gives you, plus DMARC:
+Two different jobs, and they must be kept apart or they fight over the same DNS records.
+
+| Job | Tool | Where its records live |
+|---|---|---|
+| **Sending** the app's mail (reminders, notifications, password resets) | Resend | a **subdomain**, `send.yourdomain.com` |
+| **Receiving** mail sent to you (`support@yourdomain.com`) | Cloudflare Email Routing (free) | the **root** domain |
+
+### Verify a subdomain in Resend, not the root
+
+Resend's own guidance is to use a subdomain, and here it is not optional — it is what stops the two halves colliding.
+
+Both Resend and Cloudflare Email Routing want to put **MX records** and an **SPF TXT record** on whatever hostname you give them. A hostname can only have one valid SPF record: two is not "more secure", it is a permanent hard failure that makes receiving mail servers reject or quarantine everything you send. Point both at the root and you get exactly that.
+
+Verify `send.yourdomain.com` instead and the records land on different hostnames, so there is no conflict at all. As a bonus, a problem with transactional mail never damages the reputation of your main domain.
+
+`Email__FromAddress` then becomes something like `noreply@send.yourdomain.com`.
+
+### Receiving
+
+Cloudflare dashboard → **Compute → Email Service → Email Routing** → onboard the domain. Verify a destination inbox (your ordinary personal address), then add a rule routing `support` to it. Cloudflare adds its own MX, SPF and DKIM records on the root automatically.
+
+It **forwards only** — it receives mail and delivers it to your inbox, it cannot send as that address. That is fine: the app sends through Resend, and this exists so somebody can reach a human.
+
+### DMARC
+
+One record, on the root, covering both:
 
 | Type | Name | Content |
 |---|---|---|
-| TXT | `_dmarc` | `v=DMARC1; p=none; rua=mailto:you@yourdomain.com` |
+| TXT | `_dmarc` | `v=DMARC1; p=none; rua=mailto:support@yourdomain.com` |
 
-Until all three align, reminder and message email lands in spam. Every email feature will appear to do nothing, with no error anywhere — the queue reports success either way.
+DMARC at the root applies to subdomains too, so this covers `send.yourdomain.com` without a second record.
+
+Until SPF, DKIM and DMARC all align, reminder and message email lands in spam. Every email feature will appear to do nothing, with no error anywhere — the queue reports success either way.
 
 ## 11. CI/CD (GitHub Actions)
 
@@ -252,7 +298,7 @@ Requires .NET 10 SDK, Node.js LTS, PostgreSQL running locally. On Linux or WSL, 
 | Errors | `UseExceptionHandler` returns the standard shape. **No error monitoring — a 500 in production is invisible unless someone reports it.** Sentry's free tier would fix this |
 | Uptime | External check pinging `/health` |
 | Backups | Neon provides them. Untested until you rehearse a restore |
-| File durability | **Local disk — see §7** |
+| File durability | R2 when `FileStorage__Provider=S3`; otherwise local disk, which does not survive a restart — see §7 |
 
 ## 14. Launch Checklist
 
@@ -270,4 +316,5 @@ Requires .NET 10 SDK, Node.js LTS, PostgreSQL running locally. On Linux or WSL, 
 - [ ] Error monitoring live
 - [ ] Register, log in, send a message, and one AI feature smoke-tested in production
 - [ ] Privacy policy and terms published if taking public signups
-- [ ] **Known limitation accepted or fixed: uploaded files do not survive a restart (§7)**
+- [ ] `FileStorage__Provider=S3` with R2 credentials set, and an upload verified to survive a redeploy (§7)
+- [ ] Startup log checked — it names which storage provider was chosen

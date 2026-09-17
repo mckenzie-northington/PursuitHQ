@@ -531,7 +531,7 @@ Non-secret values live in `appsettings.json`; secrets come from user-secrets in 
 | `ConnectionStrings:DefaultConnection` | PostgreSQL connection string |
 | `Jwt:Key` | Token signing key. **The app refuses to start without it**, with the user-secrets command in the message |
 | `Jwt:Issuer`, `Jwt:Audience` | Token validation. Default to `PursuitHQ` / `PursuitHQClient` |
-| `Jwt:ExpiryMinutes` | Access token lifetime (480 in `appsettings.json`; the code falls back to 60 if unset or unparseable) |
+| `Jwt:ExpiryMinutes` | Access token lifetime, 60. Lowered from 480 on 16 September 2026 — an eight-hour token is a much larger prize while it still lives in `localStorage` |
 | `FileStorage:LocalPath` | Folder for local storage, relative to the content root |
 | `FileStorage:MaxFileSizeBytes` | Per-file upload cap |
 | `FileStorage:MaxUserQuotaBytes` | Total storage per student |

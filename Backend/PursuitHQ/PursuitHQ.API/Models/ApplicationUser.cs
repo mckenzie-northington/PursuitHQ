@@ -50,6 +50,26 @@ namespace PursuitHQ.API.Models
         [MaxLength(500)]
         public string? SavedColors { get; set; }
 
+        /// <summary>
+        /// Checked at sign-up against a minimum age.
+        ///
+        /// Stored rather than discarded after the check, because the rules that
+        /// apply to somebody depend on their age and change as they get older -
+        /// keeping only "passed the check on the day they joined" answers the
+        /// wrong question a year later. It is the only reason this is here; it
+        /// is never shown to another student.
+        /// </summary>
+        public DateOnly? DateOfBirth { get; set; }
+
+        /// <summary>
+        /// When this student accepted the terms and privacy policy.
+        ///
+        /// The evidence that they were actually shown, which is the part that
+        /// matters - a policy nobody was presented with is a policy that did
+        /// not do its job.
+        /// </summary>
+        public DateTime? TermsAcceptedAt { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

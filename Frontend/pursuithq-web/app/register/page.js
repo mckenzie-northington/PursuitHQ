@@ -14,7 +14,9 @@ export default function RegisterPage() {
     password: "",
     major: "",
     graduationYear: "",
+    dateOfBirth: "",
   });
+  const [accepted, setAccepted] = useState(false);
   const [error, setError] = useState("");
   const [details, setDetails] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -35,6 +37,7 @@ export default function RegisterPage() {
         graduationYear: form.graduationYear ? Number(form.graduationYear) : null,
         major: form.major || null,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York",
+        acceptedTerms: accepted,
       });
       signIn(result.token, result.user);
     } catch (err) {
@@ -95,6 +98,23 @@ export default function RegisterPage() {
             </p>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              Date of birth
+            </label>
+            <input
+              type="date"
+              required
+              value={form.dateOfBirth}
+              onChange={(e) => update("dateOfBirth", e.target.value)}
+              className={input}
+            />
+            {/* Said before they fill the form in, not after it is rejected. */}
+            <p className="mt-1 text-xs text-slate-500">
+              You need to be at least 16 to use PursuitHQ.
+            </p>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700">Major</label>
@@ -106,9 +126,32 @@ export default function RegisterPage() {
             </div>
           </div>
 
+          {/* At the point the data is actually collected. A policy linked only
+              from a footer somewhere is a policy nobody was shown. */}
+          <label className="flex items-start gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              required
+              checked={accepted}
+              onChange={(e) => setAccepted(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              I agree to the{" "}
+              <Link href="/terms" target="_blank" className="font-medium text-indigo-600 hover:underline">
+                terms of service
+              </Link>{" "}
+              and{" "}
+              <Link href="/privacy" target="_blank" className="font-medium text-indigo-600 hover:underline">
+                privacy policy
+              </Link>
+              .
+            </span>
+          </label>
+
           <button
             type="submit"
-            disabled={busy}
+            disabled={busy || !accepted}
             className="w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
           >
             {busy ? "Creating account..." : "Create account"}

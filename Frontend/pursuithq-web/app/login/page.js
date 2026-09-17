@@ -193,6 +193,18 @@ export default function LoginPage() {
                 Create one
               </Link>
             </p>
+
+            {/* Reachable without an account, which is the point - somebody
+                deciding whether to sign up is exactly who needs to read them. */}
+            <p className="text-center text-xs text-slate-400">
+              <Link href="/privacy" className="hover:text-slate-600 hover:underline">
+                Privacy
+              </Link>
+              {" · "}
+              <Link href="/terms" className="hover:text-slate-600 hover:underline">
+                Terms
+              </Link>
+            </p>
           </form>
         )}
       </div>

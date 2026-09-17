@@ -11,6 +11,7 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import Avatar from "@/components/Avatar";
 import { educationLabel } from "@/lib/education";
+import ReportDialog from "@/components/ReportDialog";
 
 /**
  * Another student's profile.
@@ -31,6 +32,7 @@ export default function StudentProfilePage() {
   const [note, setNote] = useState("");
   const [composing, setComposing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [reporting, setReporting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -253,20 +255,37 @@ export default function StudentProfilePage() {
               Unblock
             </button>
           ) : (
-            <button
-              onClick={() => {
-                if (confirm(`Block ${student.firstName}? They will not be able to find or message you.`)) {
-                  act(() => connectionsApi.block(student.id));
-                }
-              }}
-              disabled={busy}
-              className="ml-auto rounded-md px-3 py-2 text-sm font-medium text-slate-400 transition hover:text-red-600 disabled:opacity-50"
-            >
-              Block
-            </button>
+            <>
+              {/* Next to Block rather than hidden in a menu: the two are the
+                  answers to different questions, and somebody who needs one
+                  often needs the other. */}
+              <button
+                onClick={() => setReporting(true)}
+                disabled={busy}
+                className="ml-auto rounded-md px-3 py-2 text-sm font-medium text-slate-400 transition hover:text-slate-700 disabled:opacity-50"
+              >
+                Report
+              </button>
+
+              <button
+                onClick={() => {
+                  if (confirm(`Block ${student.firstName}? They will not be able to find or message you.`)) {
+                    act(() => connectionsApi.block(student.id));
+                  }
+                }}
+                disabled={busy}
+                className="rounded-md px-3 py-2 text-sm font-medium text-slate-400 transition hover:text-red-600 disabled:opacity-50"
+              >
+                Block
+              </button>
+            </>
           )}
         </div>
       </div>
+
+      {reporting && (
+        <ReportDialog student={student} onClose={() => setReporting(false)} />
+      )}
     </div>
   );
 }

@@ -19,6 +19,7 @@ import { filterStudents } from "@/lib/studentSearch";
 import EmojiPicker, { QUICK_REACTIONS } from "@/components/EmojiPicker";
 import ContextMenu from "@/components/ContextMenu";
 import GroupSettings, { ROLE } from "@/components/GroupSettings";
+import ReportDialog from "@/components/ReportDialog";
 
 /**
  * While a conversation is open it is re-fetched on this interval.
@@ -825,6 +826,7 @@ function Thread({ conversation, me, onChanged, onClosed }) {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [menu, setMenu] = useState(null);
   const [picker, setPicker] = useState(null);
+  const [reporting, setReporting] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [presence, setPresence] = useState({ typing: [], readers: [] });
 
@@ -837,6 +839,14 @@ function Thread({ conversation, me, onChanged, onClosed }) {
   // view down when you were already down there reading.
   const composer = useRef(null);
   const lastPing = useRef(0);
+
+  // The newest message id this thread has already reported as read.
+  //
+  // Without it the poll wrote a row to the database every five seconds whether
+  // or not anything had arrived - per person, per open tab, forever. On a
+  // database billed by compute-hour that is the difference between a free plan
+  // lasting a month and lasting a few days.
+  const readUpTo = useRef(0);
   const pinned = useRef(true);
 
   // Cleared the first time real messages are laid out - and only then. The
@@ -856,7 +866,13 @@ function Thread({ conversation, me, onChanged, onClosed }) {
           signature(current) === signature(found) ? current : found
         );
 
-        if (markRead) {
+        // Only when the newest message actually moved. This also makes "mark as
+        // unread" stick on the conversation you are looking at - the old
+        // unconditional write undid it within five seconds.
+        const newest = found[found.length - 1]?.id ?? 0;
+
+        if (markRead && newest !== readUpTo.current) {
+          readUpTo.current = newest;
           await conversationsApi.markRead(id);
           onChanged?.();
         }
@@ -1354,6 +1370,24 @@ function Thread({ conversation, me, onChanged, onClosed }) {
           }
           items={[
             { label: "Reply", onClick: () => setReplyTo(menu.message) },
+            // Only on somebody else's message. Reporting your own is noise, and
+            // an option that is always there is one people stop reading.
+            !menu.message.isMine &&
+              !menu.message.isDeleted && {
+                label: "Report",
+                onClick: () =>
+                  setReporting({
+                    student: conversation.isGroup
+                      ? conversation.members.find((p) => p.id === menu.message.senderId) ?? {
+                          id: menu.message.senderId,
+                          firstName: menu.message.senderName,
+                          lastName: "",
+                        }
+                      : conversation.members[0],
+                    messageId: menu.message.id,
+                    messagePreview: menu.message.body,
+                  }),
+              },
             menu.message.isMine &&
               !menu.message.isDeleted && {
                 label: "Edit",
@@ -1368,6 +1402,15 @@ function Thread({ conversation, me, onChanged, onClosed }) {
                   act(() => conversationsApi.deleteMessage(id, menu.message.id)),
               },
           ].filter(Boolean)}
+        />
+      )}
+
+      {reporting && (
+        <ReportDialog
+          student={reporting.student}
+          messageId={reporting.messageId}
+          messagePreview={reporting.messagePreview}
+          onClose={() => setReporting(null)}
         />
       )}
 

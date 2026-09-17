@@ -5,6 +5,33 @@ namespace PursuitHQ.API.Services
     {
         public const string SectionName = "FileStorage";
 
+        /// <summary>
+        /// "Local" or "S3". Anything else, or an "S3" with missing credentials,
+        /// falls back to local disk rather than refusing to start - a
+        /// misconfigured bucket should not take the whole app down with it.
+        /// </summary>
+        public string Provider { get; set; } = "Local";
+
+        /// <summary>
+        /// S3-compatible endpoint. For Cloudflare R2 this is
+        /// https://&lt;account-id&gt;.r2.cloudflarestorage.com
+        /// </summary>
+        public string ServiceUrl { get; set; } = string.Empty;
+
+        public string Bucket { get; set; } = string.Empty;
+        public string AccessKeyId { get; set; } = string.Empty;
+
+        /// <summary>A secret. Environment variable or user-secrets only.</summary>
+        public string SecretAccessKey { get; set; } = string.Empty;
+
+        /// <summary>True when Provider is S3 and every credential is present.</summary>
+        public bool UsesObjectStorage =>
+            string.Equals(Provider, "S3", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(ServiceUrl)
+            && !string.IsNullOrWhiteSpace(Bucket)
+            && !string.IsNullOrWhiteSpace(AccessKeyId)
+            && !string.IsNullOrWhiteSpace(SecretAccessKey);
+
         /// <summary>Folder for uploads, relative to the app root. Kept outside wwwroot on purpose.</summary>
         public string LocalPath { get; set; } = "storage/uploads";
 

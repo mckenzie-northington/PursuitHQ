@@ -10,6 +10,10 @@ Last verified against the code: 16 September 2026.
 
 ASP.NET Core Identity handles password hashing and account management. The API issues a JWT on successful login.
 
+**Minimum age: 16.** Checked at registration against a date of birth, which is stored (the rules that apply to somebody depend on their age and change as they get older, so "passed the check on the day they joined" answers the wrong question a year later). It is never shown to another student. Sixteen rather than thirteen because children's privacy rules are strict, vary by jurisdiction, and are a poor fit for a project maintained by one person — and PursuitHQ is aimed at college students anyway. `EducationLevel` still offers "High school", which is why the check exists at all.
+
+**Terms acceptance** is recorded as `TermsAcceptedAt` at sign-up. The checkbox is required and the form will not submit without it.
+
 **Password policy**
 - Minimum 8 characters
 - At least one uppercase letter, one lowercase letter, and one digit
@@ -25,12 +29,12 @@ ASP.NET Core Identity handles password hashing and account management. The API i
 
 | | Current state |
 |---|---|
-| Lifetime | **8 hours** (`Jwt:ExpiryMinutes` is 480 in `appsettings.json`; `TokenService` falls back to 60 only when the setting is missing) |
+| Lifetime | **60 minutes** (`Jwt:ExpiryMinutes`). Lowered from 480 on 16 September 2026: an eight-hour token is a much larger prize while it still lives in `localStorage` |
 | Storage | **`localStorage`** in the browser |
 | Signing key | From configuration, never committed |
 | Refresh tokens | Not built |
 
-The storage line is the single biggest security gap in the project, and the eight-hour lifetime makes it worse rather than better. `localStorage` is readable by any script that runs on the page, so one cross-site-scripting hole anywhere in the app is a full account takeover lasting up to eight hours.
+The storage line is the single biggest security gap in the project. `localStorage` is readable by any script that runs on the page, so one cross-site-scripting hole anywhere in the app is a full account takeover for the life of the token. Shortening the lifetime to an hour reduces the prize; it does not close the hole.
 
 React escapes rendered text by default and there is no known XSS hole today. But the app now displays a great deal of text written by *other people* — messages, group names and descriptions, connection-request notes, sender names — and the point of an httpOnly cookie is that it survives the hole you did not know about.
 
@@ -99,6 +103,21 @@ A connection is the gate on everything social: full profile, direct messages, an
 | Group invitations | Everyone invited must already be connected to the inviter. Without this, a group is a way to put a message in front of somebody who never accepted you. |
 | Group ownership | Exactly one owner, who cannot be removed and is the only one who can change roles. This is what stops a group reaching a state nobody can administer. |
 
+## 3a. Reporting
+
+Blocking answers "leave me alone". Reporting answers "somebody should look at this" — and a platform carrying private messages with no way to raise the second leaves a student being harassed with nowhere to go, and the operator with no record that they were ever told.
+
+`POST /api/reports` is write-only. There is no endpoint that lists reports, because there is no administrator role, and adding one that any signed-in account could reach by guessing a URL would be worse than having none. Reports are read straight from the database by whoever runs PursuitHQ.
+
+| Control | Behaviour |
+|---|---|
+| Message reports | The reporter must be an active member of that conversation — the same gate as everywhere else in messaging. A message id they were never shown looks exactly like one that does not exist. |
+| Attribution | The reported student must actually be the sender of the reported message, so a report cannot attach somebody else's words to their name. |
+| Evidence | The message text is copied at report time. A message can be edited or deleted seconds later, and "look at message 4821" is useless if 4821 now says nothing. This is the only place PursuitHQ copies message content, and only when a student asks for it to be looked at. |
+| Abuse of reporting | Capped at 20 per reporter per day. The report button is itself something that can be used to harass somebody. |
+| Leakage | The response says nothing about the other account — not whether they have been reported before, not what happens next. Otherwise the button becomes a way of probing somebody. |
+| Retention | `Report` has no foreign keys, only ids. A safety record should not vanish in a cascade when an account is deleted, and equally must not be the thing that blocks somebody from deleting their account. No copy of anyone's name is kept. |
+
 ## 4. File Uploads & Attachments
 
 Uploads are the highest-risk surface in the app.
@@ -133,11 +152,14 @@ Uploads are the highest-risk surface in the app.
 | SQL injection | Prevented by EF Core parameterisation; no string-concatenated SQL |
 | AI rate limiting | **Built** — per-user daily cap via `AiUsageLimiter` (`Ai:RequestsPerUserPerDay`) |
 | Email lookup limiting | **Built** — 20 per hour per user |
-| General rate limiting | **NOT BUILT.** There is no `AddRateLimiter` call. Login is protected only by the 5-attempt lockout; registration is not protected at all. |
+| General rate limiting | **Built** — 300 requests/minute, counted per signed-in user and per IP for anonymous requests |
+| Auth rate limiting | **Built** — 20 attempts per 15 minutes per IP on login, registration, forgot-password and reset-password (`"auth"` policy) |
 
 **Server-side fetching (SSRF).** `JobDescriptionFetcher` retrieves a URL the user supplied, which is a request your server makes on a stranger's instruction. It follows redirects manually and re-checks every hop against private, loopback and link-local address ranges, and caps the response size. Any future feature that fetches a user-supplied URL must do the same — checking only the first URL is no protection, because a redirect is the attack.
 
-**A note before you set a general rate limit.** Messaging polls. One user with one chat open makes roughly 24 requests a minute legitimately (see `docs/Architecture.md`). A naive "100 requests per minute" cap would be fine for one tab and would start rejecting a user with four tabs open. Set the number after reducing the polling, or the limit will fight your own app.
+**Why the general limit is 300 and not 100.** Messaging polls. One user with one chat open makes roughly 24 requests a minute without doing anything unusual, and four tabs is near a hundred (see `docs/Architecture.md`). A limit tuned for a normal REST app would spend its time rejecting ordinary use — and a limit that fires on ordinary use gets raised until it means nothing. Lower it once SignalR replaces the polling.
+
+Identity's 5-attempt lockout protects *one account* from a guessing attack. The `"auth"` policy protects *every account at once* from somebody working through a list, which is why it partitions by IP rather than by user.
 
 ## 6. Secrets Management
 
@@ -175,22 +197,24 @@ Most messaging apps make read receipts a setting, with the fair trade that turni
 
 The reasoning: an email hands content to a third-party mail provider, leaves it sitting in an inbox that may be read on a shared screen, and survives after the sender deletes the message — which would make "delete for everyone" a lie. If you ever add message text to these emails, make it an explicit opt-in setting and say so here.
 
-**Before public signups**, publish a privacy policy covering what is stored, that content goes to an AI provider when AI features are used, and read receipts; plus terms of service and a contact address.
+**Published policies.** `/privacy` and `/terms` exist, are reachable without an account (linked from the sign-in page), and are linked from the checkbox on the registration form — at the point the data is actually collected, which is the part that matters. Both were drafted from what the code does and **both still need review by somebody qualified before real users rely on them**. The contact address in them is a placeholder (`support@pursuit-hq.com`) and must be replaced with a monitored mailbox.
+
+The privacy policy states the Gemini free-tier training clause plainly, in its own section, because that is the single most significant thing PursuitHQ does with somebody else's data.
 
 ## 8. Known Gaps
 
 Ordered by how much they matter. These are real, current, and none of them is secretly handled somewhere else.
 
-1. **JWT in `localStorage`, for 8 hours.** §1. The top item on the deployment list.
-2. **No general rate limiting.** §5. Registration and login are exposed to automated abuse beyond the lockout.
-3. **No automated tests.** There is no test project in the solution. The highest-value first test is conversation isolation: that user A cannot read user B's messages.
-4. **Account deletion does not remove uploaded files.** `AuthController.DeleteMe` removes database rows; the stored files are left behind. Marked as a TODO in the code.
-5. **File storage is local disk.** Fine locally; on an ephemeral host, attachments disappear on restart while their messages remain, which reads as data loss.
-6. **No error monitoring.** In production a 500 is invisible unless somebody reports it.
-7. **No virus scanning on uploads.**
-8. **Read receipts and typing cannot be switched off.** §7.
-9. **`AiUsageLimiter` is in-memory**, so the daily cap is per-instance and resets on restart.
-10. **Attachment orphans.** If a file fails to decode partway through a multi-file upload, files already stored are left behind with no message referencing them.
+1. **JWT in `localStorage`.** §1. The top item on the deployment list, and the only one on this list that is a genuine hole rather than a rough edge.
+2. **No automated tests.** There is no test project in the solution. The highest-value first test is conversation isolation: that user A cannot read user B's messages.
+3. **No error monitoring.** In production a 500 is invisible unless somebody reports it.
+4. **No virus scanning on uploads.**
+5. **Read receipts and typing cannot be switched off.** §7.
+5a. **No data export.** Deletion works; `FR-9` also promises export and that half does not exist. A request would have to be handled by hand.
+6. **Rate limiting is in-memory**, so limits are per-instance and reset on restart. The same is true of `AiUsageLimiter`. Fine on one instance; both would need a shared store behind more than one.
+7. **Attachment orphans.** If a file fails to decode partway through a multi-file upload, files already stored are left behind with no message referencing them.
+
+Closed on 16 September 2026: general and auth rate limiting, account deletion leaving files behind, and file storage being local-disk-only.
 
 ## 9. Pre-Launch Security Checklist
 
@@ -208,15 +232,15 @@ Checked items are verified in the code today. Unchecked items are genuinely not 
 - [x] Two-step verification with a separate token audience
 - [x] Email lookup rate-limited; discoverability off by default
 - [x] AI key server-side only; per-user daily AI cap
+- [x] General rate limiting (300/min) and auth rate limiting (20 per 15 min per IP)
+- [x] Account deletion removes stored files as well as rows
 - [ ] **JWT moved out of `localStorage` into an httpOnly cookie**
-- [ ] **General rate limiting on auth and write endpoints**
 - [ ] **`ASPNETCORE_ENVIRONMENT=Production` confirmed on the host** (gates Swagger and the `forgot-password` disclosure)
 - [ ] **`Jwt__Audience` set to `PursuitHQClient`, distinct from the 2FA audience**
 - [ ] **Strong `Jwt__Key` from the environment, not the development value**
 - [ ] No secrets anywhere in git history
 - [ ] Ownership and conversation-isolation covered by tests
-- [ ] Account deletion removes stored files as well as rows
-- [ ] File storage moved off ephemeral local disk
+- [ ] `FileStorage__Provider=S3` set on the host, so files survive a restart
 - [ ] Database backups configured, and one restore actually rehearsed
 - [ ] Error monitoring live
 - [ ] `dotnet list package --vulnerable` and `npm audit` clean

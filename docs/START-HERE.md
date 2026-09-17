@@ -244,16 +244,12 @@ is a short list of things the code as it stands is actually waiting on, roughly
 in the order of how much it would hurt to leave them. `docs/Roadmap.md` has the
 same list under "What is actually next", with more detail on each.
 
-- **Files off the local disk.** `LocalFileStorageService` writes to a folder on
-  whatever machine runs the API, and a hosted container's disk does not survive
-  a redeploy — every uploaded material, profile photo and chat attachment would
-  vanish the second time the app is deployed. This is the one item that destroys
-  data rather than merely being untidy.
 - **The JWT out of `localStorage` and into an httpOnly cookie.** Any script that
-  gets onto the page can read the token today.
-- **Rate limiting.** There is exactly one limit in the whole app: 20 email
-  lookups per student per hour. Login, registration, password reset, message
-  sending and the AI endpoints have none.
+  gets onto the page can read the token today. This is the only remaining item
+  that is a genuine hole rather than a rough edge, and it is deliberately not
+  done yet: it touches login, logout, every API call and the CORS policy, and
+  wants a session where each step can be tested.
+- **Error monitoring.** In production a 500 is invisible unless somebody says so.
 - **Some automated tests.** There is no test suite and no test project in the
   solution. The first ones to write are the ones proving a non-member cannot
   read, send, react, edit, delete, invite or download in a conversation.
@@ -420,10 +416,12 @@ have gone with the laptop's copy.
 
 Tracked in `docs/README.md`, repeated here so they are not forgotten:
 
-- **Uploaded files live on the local disk.** `LocalFileStorageService` writes
-  under `PursuitHQ.API/storage`. That folder does not survive a redeploy on a
-  hosted container, which would take every material, photo and attachment with
-  it. Must be cloud storage before deployment. See `docs/Deployment.md`.
+- **File storage has two implementations**, chosen by `FileStorage:Provider`.
+  Local disk in development; `S3FileStorageService` (Cloudflare R2) in
+  production. It **falls back to local disk when any S3 credential is missing**
+  rather than refusing to start, so check the startup log line that names which
+  was chosen — a typo in the bucket settings otherwise looks like success until
+  a restart eats the files. See `docs/Deployment.md` §7.
 - **The JWT is stored in `localStorage`.** Readable by any script on the page. Move
   to an httpOnly cookie before other students use PursuitHQ.
 - **There is no test suite.** No test project in the solution, nothing automated

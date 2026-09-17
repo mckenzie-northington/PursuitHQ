@@ -31,9 +31,10 @@ Phases are ordered by dependency: authentication comes first because nearly ever
       now — Phase 3b's queue and Resend carry it — and in Development the link
       is still logged and returned in the response, so a reset can be tested
       without a mailbox
-- [ ] Delete account also removing uploaded files — file storage exists (Phase 4)
-      but this still does not use it. `DeleteMe` deletes the Identity row and
-      nothing else; the `TODO` is still sitting in `AuthController`
+- [x] Delete account also removing uploaded files — `DeleteMe` now collects the
+      user's study materials, message attachments and profile photo and deletes
+      them from storage *before* removing the Identity row, since deleting the
+      row first would cascade away the only record of which files were theirs
 
 **Note on Swashbuckle 10 + Microsoft.OpenApi 2.x:** the JWT Swagger config uses
 `OpenApiSecuritySchemeReference` inside a document lambda, not the older
@@ -591,13 +592,13 @@ where the time goes.
 Not a wish list. These are the things the code as it stands is waiting on,
 roughly in the order of how much it would hurt to leave them.
 
-- [ ] **Files off the local disk.** `LocalFileStorageService` writes to a folder
-      on whatever machine is running the API, and a hosted container's disk does
-      not survive a redeploy — every uploaded material, profile photo and chat
-      attachment would vanish the second time the app is deployed. S3-compatible
-      storage (Cloudflare R2) behind the existing `IFileStorageService` is the
-      work, plus moving what is already on disk. This is the one item that
-      silently destroys data rather than merely being untidy.
+- [x] **Files off the local disk.** `S3FileStorageService` implements the
+      existing `IFileStorageService` against Cloudflare R2. The provider is
+      chosen by configuration and falls back to local disk when a credential is
+      missing, so a half-configured bucket degrades instead of refusing to
+      start — check the startup log line that names which was chosen. Stored
+      keys are identical between the two implementations, so anything already
+      on disk only needs its bytes copied.
 - [ ] **The JWT out of `localStorage` and into an httpOnly cookie.** Any script
       that gets onto the page can read the token today. It touches `lib/api.js`,
       the auth setup in `Program.cs` and CORS all at once, which is why it has

@@ -1,6 +1,9 @@
-﻿using System.Text;
+﻿using System.Security.Claims;
+using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -95,7 +98,23 @@ builder.Services.AddScoped<ITokenService, TokenService>();
 // different IFileStorageService here and changing nothing else.
 builder.Services.Configure<FileStorageOptions>(
     builder.Configuration.GetSection(FileStorageOptions.SectionName));
-builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
+// Object storage when it is fully configured, local disk otherwise.
+//
+// A fallback rather than a hard failure on purpose: local development has no
+// bucket, and a half-configured one in production should degrade to something
+// that works while you fix it, not refuse to start. The log line says which was
+// chosen, because silently writing to the wrong place is the bad outcome here.
+var storageOptions = new FileStorageOptions();
+builder.Configuration.GetSection(FileStorageOptions.SectionName).Bind(storageOptions);
+
+if (storageOptions.UsesObjectStorage)
+{
+    builder.Services.AddSingleton<IFileStorageService, S3FileStorageService>();
+}
+else
+{
+    builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
+}
 
 // Pulls text out of PDF, DOCX, PPTX, and XLSX uploads. Powers the text
 // preview now, and the AI study tools later.
@@ -251,6 +270,50 @@ if (allowedOrigins is null || allowedOrigins.Length == 0)
     allowedOrigins = new[] { "http://localhost:3000" };
 }
 
+// ---------------------------------------------------------------------------
+// Rate limiting
+// ---------------------------------------------------------------------------
+//
+// The global limit is deliberately generous, because messaging polls: one
+// person with one conversation open makes roughly 24 requests a minute without
+// doing anything unusual, and somebody with four tabs open is near a hundred.
+// A limit tuned for a normal REST app would spend its time rejecting ordinary
+// use, and a limit that fires on ordinary use gets raised until it means
+// nothing. Reduce this once SignalR replaces the polling.
+//
+// Signed-in requests are counted per user so that one person on a busy campus
+// network cannot exhaust everyone else's allowance; anonymous ones fall back to
+// the IP, which is accurate here only because the forwarded-headers middleware
+// below runs first.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? context.Connection.RemoteIpAddress?.ToString()
+                ?? "anonymous",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 300,
+                Window = TimeSpan.FromMinutes(1)
+            }));
+
+    // Sign-in, registration and password reset, by IP rather than by user -
+    // the whole point is to limit somebody working through a list of accounts
+    // they do not own. Identity's five-attempt lockout protects one account;
+    // this protects every account at once.
+    options.AddPolicy("auth", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(15)
+            }));
+});
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
@@ -312,6 +375,16 @@ app.UseCors("Frontend");
 // Order matters: authentication (who are you?) before authorization (are you allowed?).
 app.UseAuthentication();
 app.UseAuthorization();
+
+// After authentication, so a signed-in request is counted against the user
+// rather than against whatever address it arrived from.
+app.UseRateLimiter();
+
+app.Logger.LogInformation(
+    "File storage: {Provider}",
+    storageOptions.UsesObjectStorage
+        ? $"object storage, bucket \"{storageOptions.Bucket}\""
+        : "local disk (files will not survive a restart on an ephemeral host)");
 
 app.MapControllers();
 

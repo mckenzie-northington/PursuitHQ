@@ -253,6 +253,15 @@ export const connections = {
   unblock: (userId) => api.post("/api/connections/unblock", { userId }),
 };
 
+export const reports = {
+  /**
+   * `messageId` is optional - without it the report is about the person
+   * generally rather than one thing they said.
+   */
+  create: (reportedUserId, reason, details, messageId) =>
+    api.post("/api/reports", { reportedUserId, reason, details, messageId }),
+};
+
 export const conversations = {
   // --- groups -------------------------------------------------------
   invitations: () => api.get("/api/conversations/invitations"),

@@ -138,7 +138,7 @@ Nothing in this document should be read as promising an application tracker or j
 | FR-6 | The system shall store uploaded files outside the database and record their metadata in PostgreSQL. |
 | FR-7 | The system shall generate AI study plans on demand and persist accepted suggestions as study sessions. **Not built.** |
 | FR-8 | The system shall generate AI resume feedback on demand without modifying the stored resume unless the user accepts a change. |
-| FR-9 | The system shall allow a user to export or delete all of their data. **Partly built:** account deletion removes the database rows but not the files on storage, and there is no export. |
+| FR-9 | The system shall allow a user to export or delete all of their data. **Partly built:** account deletion removes both the database rows and the stored files (materials, message attachments, profile photo); there is still no export. |
 | FR-10 | The system shall return consistent, structured error responses for all failures. |
 | FR-11 | The system shall lock an account for 15 minutes after 5 failed login attempts within 15 minutes, and clear that lock when the password is successfully reset. |
 | FR-12 | The system shall let a student record non-class activities on their calendar, including recurring ones. |
@@ -174,14 +174,14 @@ Nothing in this document should be read as promising an application tracker or j
 | Usability | Every destructive action asks for confirmation; forms show inline validation errors. |
 | Accessibility | Keyboard navigable; sufficient color contrast; form fields properly labeled. |
 | Maintainability | Layered architecture (Controllers → Services → Data); no business logic in controllers; DTOs at every API boundary. |
-| Cost control | AI endpoints are rate-limited per user to bound API spend. |
-| Portability | File storage accessed through an interface so local disk can be swapped for cloud storage without entity changes. |
+| Cost control | AI endpoints are capped per user per day to bound API spend; a general 300/minute limit and a stricter limit on authentication endpoints bound abuse. |
+| Portability | File storage accessed through an interface, with local-disk and S3-compatible implementations chosen by configuration. Stored keys are identical between them, so switching moves bytes rather than rows. |
 
 **Known gaps against the rows above, as of September 2026.** These are stated here rather than quietly left out; `Roadmap.md` §"What is actually next" is where they are being worked through.
 
 - The JWT is held in browser `localStorage`, readable by any script on the page. It belongs in an httpOnly cookie.
-- Rate limiting exists in exactly one place — email lookup in the student directory. Login, registration, password reset, message sending, and the AI endpoints have none.
-- Files are written to local disk, which does not survive a redeploy on a hosted container. Cloud storage behind `IFileStorageService` is required before deployment.
+- Rate limiting is in-memory, so limits are per-instance and reset on restart. Fine on one instance; a shared store would be needed behind more than one.
+- Read receipts and typing indicators cannot be switched off. Both disclose something about you to other members.
 - List endpoints are not paginated apart from messages (50 at a time) and the capped result sets in student search.
 - There is no error monitoring; a failure in a deployed API would leave no record anybody sees.
 

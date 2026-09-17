@@ -25,5 +25,17 @@ namespace PursuitHQ.API.DTOs.Auth
 
         /// <summary>IANA time zone id. Determines when reminder emails are sent.</summary>
         public string TimeZone { get; set; } = "America/New_York";
+
+        /// <summary>
+        /// Date of birth, checked against the minimum age.
+        ///
+        /// Required. An optional age check is not an age check - anyone who
+        /// would fail it simply leaves the field empty.
+        /// </summary>
+        [Required(ErrorMessage = "Enter your date of birth.")]
+        public DateOnly? DateOfBirth { get; set; }
+
+        /// <summary>Must be true. The form cannot submit without it.</summary>
+        public bool AcceptedTerms { get; set; }
     }
 }

@@ -58,6 +58,9 @@ namespace PursuitHQ.API.Data
         public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
         public DbSet<MessageAttachment> MessageAttachments => Set<MessageAttachment>();
 
+        /// <summary>Safety reports. Ids only, no foreign keys - see Report.</summary>
+        public DbSet<Report> Reports => Set<Report>();
+
         /// <summary>
         /// Every DateTime column is PostgreSQL "timestamp with time zone", and
         /// Npgsql refuses to write a DateTime whose Kind is Unspecified to one.

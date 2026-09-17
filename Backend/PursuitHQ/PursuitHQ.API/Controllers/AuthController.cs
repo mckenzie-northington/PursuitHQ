@@ -3,6 +3,7 @@ using System.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using PursuitHQ.API.Data;
@@ -17,6 +18,17 @@ namespace PursuitHQ.API.Controllers
     [Route("api/[controller]")]
     public class AuthController : ControllerBase
     {
+        /// <summary>
+        /// The youngest somebody may be to hold an account.
+        ///
+        /// Sixteen rather than thirteen: the rules protecting children are
+        /// strict, vary by country and state, and are a poor fit for a project
+        /// maintained by one person. Setting the line above where most of them
+        /// begin is the proportionate answer for an app aimed at college
+        /// students in the first place.
+        /// </summary>
+        private const int MinimumAge = 16;
+
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly ITokenService _tokenService;
@@ -53,8 +65,26 @@ namespace PursuitHQ.API.Controllers
         /// <summary>Creates a new student account and returns a JWT.</summary>
         [HttpPost("register")]
         [AllowAnonymous]
+        [EnableRateLimiting("auth")]
         public async Task<ActionResult<AuthResponseDto>> Register(RegisterDto dto)
         {
+            if (!dto.AcceptedTerms)
+            {
+                return BadRequest(new ApiErrorDto(
+                    "TermsNotAccepted",
+                    "You need to accept the terms and privacy policy to create an account."));
+            }
+
+            if (dto.DateOfBirth is not DateOnly birthday || !IsOldEnough(birthday))
+            {
+                // One message for "too young" and for "that date makes no
+                // sense", so a refusal does not read as an invitation to try
+                // again with a different year.
+                return BadRequest(new ApiErrorDto(
+                    "AgeRequirement",
+                    $"You need to be at least {MinimumAge} to use PursuitHQ."));
+            }
+
             var existing = await _userManager.FindByEmailAsync(dto.Email);
             if (existing is not null)
             {
@@ -75,6 +105,8 @@ namespace PursuitHQ.API.Controllers
                 // sign-up over: the default is wrong for some people, an
                 // account they cannot create is wrong for all of them.
                 TimeZone = IsResolvableTimeZone(dto.TimeZone) ? dto.TimeZone! : "America/New_York",
+                DateOfBirth = dto.DateOfBirth,
+                TermsAcceptedAt = DateTime.UtcNow,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -108,6 +140,7 @@ namespace PursuitHQ.API.Controllers
         /// <summary>Authenticates a student and returns a JWT.</summary>
         [HttpPost("login")]
         [AllowAnonymous]
+        [EnableRateLimiting("auth")]
         public async Task<ActionResult<AuthResponseDto>> Login(LoginDto dto)
         {
             var user = await _userManager.FindByEmailAsync(dto.Email);
@@ -173,6 +206,7 @@ namespace PursuitHQ.API.Controllers
         /// </summary>
         [HttpPost("forgot-password")]
         [AllowAnonymous]
+        [EnableRateLimiting("auth")]
         public async Task<ActionResult<ForgotPasswordResponseDto>> ForgotPassword(
             ForgotPasswordDto dto)
         {
@@ -289,6 +323,7 @@ namespace PursuitHQ.API.Controllers
 
         [HttpPost("reset-password")]
         [AllowAnonymous]
+        [EnableRateLimiting("auth")]
         public async Task<IActionResult> ResetPassword(ResetPasswordDto dto)
         {
             var user = await _userManager.FindByEmailAsync(dto.Email);
@@ -422,12 +457,37 @@ namespace PursuitHQ.API.Controllers
         /// </summary>
         [HttpDelete("me")]
         [Authorize]
-        public async Task<IActionResult> DeleteMe()
+        public async Task<IActionResult> DeleteMe(
+            [FromServices] IFileStorageService storage)
         {
             var user = await GetCurrentUserAsync();
             if (user is null) return Unauthorized();
 
-            // TODO (Phase 4): also delete this user's uploaded files from storage.
+            // Files first, while the rows that name them still exist. Deleting
+            // the user first would cascade the rows away and leave every file
+            // orphaned in storage with nothing left pointing at it - which is
+            // how "delete my account" quietly becomes "keep my account's files".
+            var keys = new List<string>();
+
+            keys.AddRange(await _db.StudyMaterials
+                .Where(x => x.UserId == user.Id && x.StoredPath != "")
+                .Select(x => x.StoredPath)
+                .ToListAsync());
+
+            keys.AddRange(await _db.MessageAttachments
+                .Where(x => x.Message!.SenderId == user.Id)
+                .Select(x => x.StoragePath)
+                .ToListAsync());
+
+            if (!string.IsNullOrEmpty(user.PhotoPath)) keys.Add(user.PhotoPath);
+
+            foreach (var key in keys.Distinct())
+            {
+                // DeleteAsync already swallows its own failures, so one missing
+                // file cannot strand somebody in a half-deleted account.
+                await storage.DeleteAsync(key);
+            }
+
             var result = await _userManager.DeleteAsync(user);
 
             if (!result.Succeeded)
@@ -436,6 +496,24 @@ namespace PursuitHQ.API.Controllers
             }
 
             return NoContent();
+        }
+
+        /// <summary>
+        /// Whether somebody born on this date has already had their birthday
+        /// this year, rather than simply subtracting the years.
+        /// </summary>
+        private static bool IsOldEnough(DateOnly birthday)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            // A date in the future, or one implying somebody older than anyone
+            // alive, is a typo or a probe rather than an answer.
+            if (birthday > today || birthday.Year < today.Year - 120) return false;
+
+            var age = today.Year - birthday.Year;
+            if (birthday > today.AddYears(-age)) age--;
+
+            return age >= MinimumAge;
         }
 
         // ---------- helpers ----------

@@ -20,7 +20,7 @@ A staging environment is optional early; add one before the first release with r
 | Piece | Service | Free allowance | Catch |
 |---|---|---|---|
 | Frontend | **Vercel Hobby** | Unlimited personal projects, custom domain, HTTPS | Non-commercial use only |
-| Database | **Neon Free** | 0.5 GB storage, 100 compute-hours/month | Scales to zero after 5 min idle. **See §2a — polling breaks this assumption.** |
+| Database | **Neon Free** | 0.5 GB storage, 100 CU-hours/month, 5 GB transfer | Permanently free, no overage charges. Scales to zero after 5 min idle. **See §2a — polling breaks that assumption.** |
 | Backend API | **Render Free web service** | 512 MB RAM, 750 instance-hours/month | Spins down after 15 minutes idle; the next request waits ~1 minute |
 | Email | **Resend Free** | 3,000 emails/month, 100/day | Enough at small scale |
 | CI/CD | **GitHub Actions** | 2,000 minutes/month | — |
@@ -49,9 +49,11 @@ Messaging has no SignalR. It polls. One open conversation produces:
 
 All of it pauses when the browser tab is hidden.
 
-Neon's free plan gives 100 compute-hours a month and scales the compute to zero after five idle minutes. That allowance is generous *because* it assumes the database is idle most of the time. Polling every 2.5 seconds means it never is.
+Neon's free plan gives **100 CU-hours** a month and scales the compute to zero after five idle minutes. That allowance is generous *because* it assumes the database is idle most of the time. Polling every 2.5 seconds means it never is.
 
-A month is about 730 hours. **One person leaving one tab open can consume the entire monthly allowance in roughly four days**, after which the app stops until the month resets.
+A CU-hour is compute size multiplied by time, and the free plan autoscales from 0.25 CU. So a database kept permanently awake at the smallest size burns 0.25 CU-hours per hour, and a month of roughly 730 hours costs about **183 CU-hours against an allowance of 100**. In practice **one person leaving one tab open exhausts the month somewhere around day 16** — sooner if queries push the compute above its minimum size.
+
+**It does not bill you for going over.** The free plan has no overages: the compute suspends, open connections drop and new ones fail until the next billing cycle. Your data is never deleted. So the failure mode is the app going down mid-month, not a surprise invoice — which is the right trade for a student project, but it is still the app going down.
 
 **The largest of these is already fixed.** `POST /read` used to fire on every poll whether or not anything had arrived — a database write per person per open tab every five seconds. It now writes only when the newest message id actually changed, which removes most of the write traffic. It also made "mark as unread" stick on the conversation you are looking at; the unconditional write used to undo it within five seconds.
 

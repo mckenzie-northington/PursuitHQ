@@ -22,7 +22,20 @@
     </PackageReference>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="PdfPig" Version="0.1.16" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="4.1.2" />
+    <!--
+      Pinned to 3.x on purpose. Version 4 added a build-time licence check that
+      is a warning in Debug and an ERROR in Release, so `dotnet publish` fails
+      in CI while `dotnet build` succeeds locally. Version 3 sits under the same
+      Six Labors split licence - which requires payment only from closed-source
+      for-profit companies over $1M revenue, not from a student project - it
+      simply does not enforce it at build time.
+
+      A free Community licence is available by application at
+      licensing.sixlabors.com; getting one is what would allow a move back to 4.
+      The other exit is SkiaSharp (MIT), which would be contained to
+      ProfilePhotoService.
+    -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.*" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
   </ItemGroup>
 

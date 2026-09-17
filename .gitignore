@@ -22,3 +22,9 @@ Backend/PursuitHQ/PursuitHQ.API/storage/
 ## because a tracked second copy of a source file is a trap: it shadows the
 ## real one in search results and has already caused one build failure.
 Claude outputs/
+
+# Six Labors (ImageSharp) licence key. This repository is public, and Six Labors
+# say plainly not to commit the key or the .lic file to one. On the server it is
+# supplied as a build argument instead, never from the repo.
+sixlabors.lic
+*.lic

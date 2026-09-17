@@ -139,7 +139,9 @@ namespace PursuitHQ.API.Controllers
                     LastMessage = Preview(last),
                     LastMessageSender = last?.Kind == MessageKind.System
                         ? null
-                        : last?.Sender?.FirstName,
+                        : last is not null && last.SenderId is null
+                            ? "Deleted account"
+                            : last?.Sender?.FirstName,
                     LastMessageAt = conversation.LastMessageAt,
                     IsMuted = membership.IsMuted,
                     IsPinned = membership.IsPinned,
@@ -1063,7 +1065,9 @@ namespace PursuitHQ.API.Controllers
                 IsGroup = m.Conversation?.IsGroup ?? false,
                 ConversationTitle = SearchTitle(m.Conversation),
                 MessageId = m.Id,
-                SenderName = m.Sender is null ? "Someone" : m.Sender.FirstName,
+                SenderName = m.SenderId is null
+                    ? "Deleted account"
+                    : m.Sender is null ? "Someone" : m.Sender.FirstName,
                 Body = m.Body,
                 SentAt = m.SentAt
             }).ToList());
@@ -1615,10 +1619,20 @@ namespace PursuitHQ.API.Controllers
         private MessageDto ToDto(Message message) => new()
         {
             Id = message.Id,
-            SenderId = message.SenderId,
-            SenderName = message.Sender is null
-                ? "Someone"
-                : $"{message.Sender.FirstName} {message.Sender.LastName}".Trim(),
+
+            // Empty rather than null: the client compares this to its own id,
+            // and a missing field is a different kind of bug to find than an
+            // id that matches nobody.
+            SenderId = message.SenderId ?? string.Empty,
+
+            // A null SenderId means the account was deleted. A null Sender with
+            // an id present means it simply was not loaded, which is a
+            // different thing and says so differently.
+            SenderName = message.SenderId is null
+                ? "Deleted account"
+                : message.Sender is null
+                    ? "Someone"
+                    : $"{message.Sender.FirstName} {message.Sender.LastName}".Trim(),
             Body = message.DeletedAt is null ? message.Body : string.Empty,
             Kind = message.Kind,
             SentAt = message.SentAt,
@@ -1626,7 +1640,11 @@ namespace PursuitHQ.API.Controllers
             IsDeleted = message.DeletedAt is not null,
             IsMine = message.SenderId == CurrentUserId,
             ReplyToId = message.ReplyToMessageId,
-            ReplyToSender = message.ReplyToMessage?.Sender?.FirstName,
+            ReplyToSender = message.ReplyToMessage is null
+                ? null
+                : message.ReplyToMessage.SenderId is null
+                    ? "Deleted account"
+                    : message.ReplyToMessage.Sender?.FirstName,
             ReplyToBody = message.ReplyToMessage is null ? null
                 : message.ReplyToMessage.DeletedAt is not null ? "Message deleted"
                 : Clip(message.ReplyToMessage.Body, 120),

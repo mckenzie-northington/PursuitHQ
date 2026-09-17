@@ -504,6 +504,42 @@ namespace PursuitHQ.API.Controllers
                 await storage.DeleteAsync(key);
             }
 
+            // The attachment ROWS, now that their files are gone.
+            //
+            // Messages are detached rather than deleted, so without this the
+            // rows survive their own files and every thread the student ever
+            // sent a file to shows a download card for something that no longer
+            // exists. The text of the message stays; the file they uploaded is
+            // properly gone, row and bytes together.
+            var attachments = await _db.MessageAttachments
+                .Where(x => x.Message!.SenderId == user.Id)
+                .ToListAsync();
+
+            if (attachments.Count > 0)
+            {
+                _db.MessageAttachments.RemoveRange(attachments);
+            }
+
+            // Reactions are the one relationship pointing at this account that
+            // the database will not let go of by itself, and deliberately so -
+            // see ApplicationDbContext. They carry no content, so they are
+            // removed outright. Messages are detached rather than deleted and
+            // need nothing here.
+            var reactions = await _db.MessageReactions
+                .Where(r => r.UserId == user.Id)
+                .ToListAsync();
+
+            if (reactions.Count > 0)
+            {
+                _db.MessageReactions.RemoveRange(reactions);
+            }
+
+            // One save for both, before Identity deletes the user row itself.
+            if (attachments.Count > 0 || reactions.Count > 0)
+            {
+                await _db.SaveChangesAsync();
+            }
+
             // Read before the row is gone. After DeleteAsync there is nothing
             // left to look the address up from, and a deletion confirmation sent
             // nowhere is the one confirmation people actually go looking for.

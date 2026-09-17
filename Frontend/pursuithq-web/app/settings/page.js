@@ -130,6 +130,15 @@ export default function SettingsPage() {
 
   const [deleting, setDeleting] = useState(false);
 
+  // The confirmation used to be window.prompt(). Two things wrong with that:
+  // once somebody ticks "prevent this page from creating additional dialogs"
+  // - which browsers offer after any dialog - prompt() returns null forever
+  // and the button silently stops working, and it cannot be used at all in
+  // some mobile browsers. An input in the page always works and can be read.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteText, setDeleteText] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+
   // ---------------------------------------------------------------------
   // Clearing "Saved." when you change something else.
   //
@@ -299,20 +308,20 @@ export default function SettingsPage() {
   }
 
   async function deleteAccount() {
-    const typed = prompt(
-      'This deletes your account and everything in it — courses, assignments, materials, and study tools. This cannot be undone.\n\nType DELETE to confirm.'
-    );
-
-    if (typed !== "DELETE") return;
+    if (deleteText !== "DELETE") return;
 
     setDeleting(true);
+    setDeleteError("");
 
     try {
       await authApi.deleteAccount();
       clearSession();
       router.replace("/register");
     } catch (err) {
-      setProfileError(err.message);
+      // Shown here rather than in the profile section at the top of the page,
+      // where it was before: an error a full screen above the button you just
+      // pressed reads as nothing having happened at all.
+      setDeleteError(err.message);
       setDeleting(false);
     }
   }
@@ -800,14 +809,64 @@ export default function SettingsPage() {
             Sign out
           </button>
 
-          <button
-            onClick={deleteAccount}
-            disabled={deleting}
-            className="rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
-          >
-            {deleting ? "Deleting..." : "Delete account"}
-          </button>
+          {!confirmingDelete && (
+            <button
+              onClick={() => {
+                setConfirmingDelete(true);
+                setDeleteError("");
+                setDeleteText("");
+              }}
+              className="rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50"
+            >
+              Delete account
+            </button>
+          )}
         </div>
+
+        {confirmingDelete && (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4">
+            <p className="text-sm font-medium text-red-800">
+              This deletes your account and everything in it - courses,
+              assignments, materials and study tools. It cannot be undone.
+            </p>
+
+            <label className="mt-3 block text-sm text-red-800">
+              Type <span className="font-mono font-semibold">DELETE</span> to confirm.
+              <input
+                value={deleteText}
+                onChange={(e) => setDeleteText(e.target.value)}
+                autoComplete="off"
+                className="mt-1 w-full rounded-md border border-red-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-red-500 focus:ring-1 focus:ring-red-500 sm:max-w-xs"
+              />
+            </label>
+
+            {deleteError && (
+              <p className="mt-3 text-sm font-medium text-red-700">{deleteError}</p>
+            )}
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                onClick={deleteAccount}
+                disabled={deleting || deleteText !== "DELETE"}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Delete my account"}
+              </button>
+
+              <button
+                onClick={() => {
+                  setConfirmingDelete(false);
+                  setDeleteText("");
+                  setDeleteError("");
+                }}
+                disabled={deleting}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         <p className="mt-3 text-xs text-slate-500">
           Deleting removes your courses, assignments, materials, and study tools. It cannot

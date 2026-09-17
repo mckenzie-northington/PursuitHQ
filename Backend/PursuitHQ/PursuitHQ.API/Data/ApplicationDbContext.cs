@@ -167,13 +167,24 @@ namespace PursuitHQ.API.Data
                 .HasForeignKey(m => m.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Restrict, not Cascade, and deliberately so: deleting an account
-            // must not silently erase that person's half of everyone else's
-            // group conversations, leaving the rest unreadable.
+            // SetNull, not Cascade and not Restrict.
+            //
+            // Cascade would erase somebody's half of everyone else's group
+            // conversations when they delete their account, leaving the rest
+            // answering questions that are no longer there. Restrict, which is
+            // what this used to be, expressed the same intent but had nothing
+            // behind it: the database simply refused the delete, so anyone who
+            // had ever sent a message could not delete their account at all.
+            //
+            // Detaching is the answer both were reaching for. The message stays
+            // readable for the people it was sent to; the link back to the
+            // person is gone, and the API renders a null sender as a deleted
+            // account. Everything that is theirs alone - profile, courses,
+            // files, photo - is still destroyed.
             builder.Entity<Message>()
                 .HasOne(m => m.Sender).WithMany()
                 .HasForeignKey(m => m.SenderId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.SetNull);
 
             // Messages are paged newest-first by id within a conversation.
             builder.Entity<Message>()
@@ -210,8 +221,12 @@ namespace PursuitHQ.API.Data
                 .HasIndex(r => new { r.MessageId, r.UserId, r.Emoji })
                 .IsUnique();
 
-            // Restrict, like Message.Sender: deleting an account should not
-            // silently rewrite what everybody else reacted to.
+            // Reactions are the one thing here that is deleted outright rather
+            // than detached. A reaction is a name attached to an emoji and
+            // nothing else - anonymised it says only that somebody, once,
+            // reacted, which is not worth keeping. Restrict stays so that no
+            // path deletes them by accident; AuthController removes the
+            // student's own reactions deliberately before deleting the account.
             builder.Entity<MessageReaction>()
                 .HasOne(r => r.User).WithMany()
                 .HasForeignKey(r => r.UserId)

@@ -343,6 +343,17 @@ export default function PrivacyPage() {
             profile photo. It is permanent, and there is no undo, so take a copy
             of anything you want to keep first.
           </p>
+          <p>
+            One exception, and it is worth being precise about. Messages you
+            have already sent to other people are not removed from their
+            conversations. They stop being connected to you - your name comes
+            off them and they are shown as coming from a deleted account - but
+            the text stays where it is. Deleting them outright would mean
+            reaching into other people&rsquo;s conversations and taking messages
+            out of the middle, leaving replies answering things that are no
+            longer there. Any files you attached to those messages are deleted
+            along with everything else.
+          </p>
           <p className="font-medium text-slate-900">Change things in Settings</p>
           <Bullets
             items={[

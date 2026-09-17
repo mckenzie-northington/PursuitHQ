@@ -200,7 +200,16 @@ namespace PursuitHQ.API.Models
         public int ConversationId { get; set; }
         public Conversation? Conversation { get; set; }
 
-        public string SenderId { get; set; } = string.Empty;
+        /// <summary>
+        /// Who sent it, or null once that account has been deleted.
+        ///
+        /// Nullable so that deleting an account can detach its messages instead
+        /// of being blocked by them. The message stays where it is, in a
+        /// conversation other people are still reading, and is shown as coming
+        /// from a deleted account. See ApplicationDbContext for the rule that
+        /// does the detaching.
+        /// </summary>
+        public string? SenderId { get; set; }
         public ApplicationUser? Sender { get; set; }
 
         public string Body { get; set; } = string.Empty;

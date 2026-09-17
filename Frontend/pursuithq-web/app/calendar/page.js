@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   assignments as assignmentsApi,
@@ -36,6 +36,21 @@ export default function CalendarPage() {
   const { user, loading } = useAuth();
 
   const [view, setView] = useState("month");
+
+  // A month of seven columns on a phone is forty-two boxes the width of a
+  // thumbnail. Day view is the only one that reads there, so that is where a
+  // narrow screen starts - after the first paint, not during it, because
+  // measuring the window while rendering would disagree with the server's HTML
+  // and produce a hydration error.
+  //
+  // Only until the student picks a view themselves; after that their choice
+  // stands, including on a phone.
+  const pickedView = useRef(false);
+
+  useEffect(() => {
+    if (pickedView.current) return;
+    if (window.innerWidth < 640) setView("day");
+  }, []);
   const [anchor, setAnchor] = useState(() => startOfToday());
   const [items, setItems] = useState([]);
   const [ready, setReady] = useState(false);
@@ -321,7 +336,10 @@ export default function CalendarPage() {
             {VIEWS.map((v) => (
             <button
               key={v}
-              onClick={() => setView(v)}
+              onClick={() => {
+                pickedView.current = true;
+                setView(v);
+              }}
               className={`rounded px-3 py-1 text-sm font-medium capitalize transition ${
                 view === v ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
               }`}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth as authApi, notifications as notificationsApi, clearSession } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
@@ -130,6 +130,34 @@ export default function SettingsPage() {
 
   const [deleting, setDeleting] = useState(false);
 
+  // ---------------------------------------------------------------------
+  // Clearing "Saved." when you change something else.
+  //
+  // Without this the confirmation from the last save sits there while you edit
+  // the next thing, so the form reads as already saved when it is not - which
+  // is exactly the moment somebody navigates away and loses the change.
+  //
+  // These hold the object each save left behind, compared by reference. The
+  // effect fires on every change to the state; the one change it ignores is the
+  // one the save itself made.
+  // ---------------------------------------------------------------------
+  const savedNotify = useRef(null);
+  const savedProfile = useRef(null);
+
+  useEffect(() => {
+    if (notify === null || savedNotify.current === notify) return;
+
+    setNotifyMessage("");
+    setNotifyError("");
+  }, [notify]);
+
+  useEffect(() => {
+    if (profile === null || savedProfile.current === profile) return;
+
+    setProfileMessage("");
+    setProfileError("");
+  }, [profile]);
+
   useEffect(() => {
     if (loading || !user) return;
 
@@ -166,24 +194,26 @@ export default function SettingsPage() {
     setNotifyMessage("");
 
     try {
-      setNotify(
-        await notificationsApi.savePreferences({
-          emailEnabled: notify.emailEnabled,
-          assignmentRemindersEnabled: notify.assignmentRemindersEnabled,
-          assignmentReminderHours: notify.assignmentReminderHours ?? [],
-          eventRemindersEnabled: notify.eventRemindersEnabled,
-          eventReminderMinutesBefore: Number(notify.eventReminderMinutesBefore),
-          dailyDigestEnabled: notify.dailyDigestEnabled,
-          dailyDigestTime: notify.dailyDigestTime,
-          weeklyDigestEnabled: notify.weeklyDigestEnabled,
-          weeklyDigestDay: Number(notify.weeklyDigestDay),
-          weeklyDigestTime: notify.weeklyDigestTime,
-          creationConfirmationsEnabled: notify.creationConfirmationsEnabled,
-          messageEmailsEnabled: notify.messageEmailsEnabled ?? true,
-          requestEmailsEnabled: notify.requestEmailsEnabled ?? true,
-        })
-      );
+      const saved = await notificationsApi.savePreferences({
+        emailEnabled: notify.emailEnabled,
+        assignmentRemindersEnabled: notify.assignmentRemindersEnabled,
+        assignmentReminderHours: notify.assignmentReminderHours ?? [],
+        eventRemindersEnabled: notify.eventRemindersEnabled,
+        eventReminderMinutesBefore: Number(notify.eventReminderMinutesBefore),
+        dailyDigestEnabled: notify.dailyDigestEnabled,
+        dailyDigestTime: notify.dailyDigestTime,
+        weeklyDigestEnabled: notify.weeklyDigestEnabled,
+        weeklyDigestDay: Number(notify.weeklyDigestDay),
+        weeklyDigestTime: notify.weeklyDigestTime,
+        creationConfirmationsEnabled: notify.creationConfirmationsEnabled,
+        messageEmailsEnabled: notify.messageEmailsEnabled ?? true,
+        requestEmailsEnabled: notify.requestEmailsEnabled ?? true,
+      });
 
+      // Recorded before the state is set, so the effect above can tell this
+      // change apart from one the student made.
+      savedNotify.current = saved;
+      setNotify(saved);
       setNotifyMessage("Saved.");
     } catch (err) {
       setNotifyError(err.message);
@@ -226,6 +256,8 @@ export default function SettingsPage() {
       });
 
       updateUser(updated);
+
+      savedProfile.current = profile;
       setProfileMessage("Saved.");
     } catch (err) {
       setProfileError(err.message);

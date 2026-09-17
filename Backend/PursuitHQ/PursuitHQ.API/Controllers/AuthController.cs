@@ -45,10 +45,12 @@ namespace PursuitHQ.API.Controllers
             IWebHostEnvironment environment,
             IConfiguration configuration,
             IEmailQueue emailQueue,
+            IAccountNotifier accountNotifier,
             IOptions<EmailOptions> emailOptions,
             ILogger<AuthController> logger)
         {
             _emailQueue = emailQueue;
+            _accountNotifier = accountNotifier;
             _emailOptions = emailOptions.Value;
             _userManager = userManager;
             _signInManager = signInManager;
@@ -60,6 +62,7 @@ namespace PursuitHQ.API.Controllers
         }
 
         private readonly IEmailQueue _emailQueue;
+        private readonly IAccountNotifier _accountNotifier;
         private readonly EmailOptions _emailOptions;
 
         /// <summary>Creates a new student account and returns a JWT.</summary>
@@ -134,6 +137,11 @@ namespace PursuitHQ.API.Controllers
             });
             await _db.SaveChangesAsync();
 
+            // After the account is fully set up, and deliberately not awaited on
+            // the critical path in any meaningful sense - the notifier queues and
+            // returns. Registration must not fail because email is having a bad day.
+            await _accountNotifier.AccountCreatedAsync(user.Email!, user.FirstName);
+
             return Ok(BuildAuthResponse(user));
         }
 
@@ -145,14 +153,22 @@ namespace PursuitHQ.API.Controllers
         {
             var user = await _userManager.FindByEmailAsync(dto.Email);
 
-            // Deliberately the same response whether the email is unknown or the
-            // password is wrong - otherwise this endpoint reveals which emails
-            // have accounts.
+            // An unknown email is told so plainly, rather than being folded into
+            // "email or password is incorrect".
+            //
+            // The trade-off, stated so it is a decision and not an accident:
+            // this does confirm whether an address has an account here, which a
+            // stranger could use to check a list of addresses. It is allowed
+            // because the alternative was people retyping a password they never
+            // set on an account they never made, with nothing telling them so -
+            // and because the "auth" rate limit caps how fast that list could be
+            // worked through. Password reset stays deliberately vague, so the
+            // two endpoints together still give nothing away quickly.
             if (user is null)
             {
                 return Unauthorized(new ApiErrorDto(
-                    "InvalidCredentials",
-                    "Email or password is incorrect."));
+                    "NoAccount",
+                    "There is no account with that email address."));
             }
 
             // lockoutOnFailure: true is what makes the 5-attempt lockout work.
@@ -488,11 +504,22 @@ namespace PursuitHQ.API.Controllers
                 await storage.DeleteAsync(key);
             }
 
+            // Read before the row is gone. After DeleteAsync there is nothing
+            // left to look the address up from, and a deletion confirmation sent
+            // nowhere is the one confirmation people actually go looking for.
+            var email = user.Email;
+            var firstName = user.FirstName;
+
             var result = await _userManager.DeleteAsync(user);
 
             if (!result.Succeeded)
             {
                 return BadRequest(new ApiErrorDto("DeleteFailed", "Could not delete the account."));
+            }
+
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                await _accountNotifier.AccountDeletedAsync(email, firstName);
             }
 
             return NoContent();

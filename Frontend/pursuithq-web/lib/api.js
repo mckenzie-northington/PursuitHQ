@@ -65,14 +65,21 @@ export function clearSession() {
 // --- the request helper ----------------------------------------------------
 
 export class ApiError extends Error {
-  constructor(message, status, details) {
+  /**
+   * `code` is the API's short machine-readable name for what went wrong
+   * ("NoAccount", "AccountLocked"). Pages that only show the message can ignore
+   * it; pages that want to react to one particular failure branch on this
+   * rather than matching the wording, which changes.
+   */
+  constructor(message, status, details, code) {
     super(message);
     this.status = status;
     this.details = details;
+    this.code = code;
   }
 }
 
-async function request(path, { method = "GET", body } = {}) {
+async function request(path, { method = "GET", body, signingIn = false } = {}) {
   const headers = { "Content-Type": "application/json" };
 
   const token = getToken();
@@ -109,7 +116,12 @@ async function request(path, { method = "GET", body } = {}) {
     }
   }
 
-  if (res.status === 401) {
+  // A 401 usually means the token has gone stale, and the answer is to sign in
+  // again. It means something completely different on the sign-in call itself,
+  // where it is the server saying those credentials are wrong - and replacing
+  // that with "your session expired" was telling people the opposite of what
+  // had happened. Anything sent without a token is in the same position.
+  if (res.status === 401 && !signingIn && token) {
     sessionExpired();
     throw new ApiError("Your session expired. Sign in again.", 401);
   }
@@ -117,7 +129,7 @@ async function request(path, { method = "GET", body } = {}) {
   if (!res.ok) {
     // The API returns { error, message, details } - see docs/ApiDesign.md
     const message = data?.message || `Request failed (${res.status})`;
-    throw new ApiError(message, res.status, data?.details);
+    throw new ApiError(message, res.status, data?.details, data?.error);
   }
 
   return data;
@@ -209,6 +221,13 @@ export const api = {
   put: (path, body) => request(path, { method: "PUT", body }),
   patch: (path, body) => request(path, { method: "PATCH", body }),
   del: (path) => request(path, { method: "DELETE" }),
+
+  /**
+   * For the sign-in calls only. A 401 here is an answer about the credentials
+   * that were just typed, not a sign that the session ran out, so it is passed
+   * through with the server's own wording instead of being intercepted.
+   */
+  postSignIn: (path, body) => request(path, { method: "POST", body, signingIn: true }),
 };
 
 // --- feature helpers -------------------------------------------------------
@@ -368,9 +387,9 @@ export const auth = {
 
     /** Second half of signing in. The only thing the pending token is good for. */
     verify: (twoFactorToken, code) =>
-      api.post("/api/auth/2fa/verify", { twoFactorToken, code }),
+      api.postSignIn("/api/auth/2fa/verify", { twoFactorToken, code }),
   },
-  login: (data) => api.post("/api/auth/login", data),
+  login: (data) => api.postSignIn("/api/auth/login", data),
   me: () => api.get("/api/auth/me"),
   updateProfile: (data) => api.put("/api/auth/me", data),
 
@@ -583,6 +602,16 @@ export const preferences = {
   /** The student's saved color palette, as an array of hex strings. */
   colors: () => api.get("/api/preferences/colors"),
   saveColors: (colors) => api.put("/api/preferences/colors", { colors }),
+};
+
+export const support = {
+  /**
+   * Reports a problem with the app itself. `pageUrl` is filled in by the form
+   * rather than typed, because the page somebody was on is the most useful
+   * thing in a bug report and the thing people most reliably forget.
+   */
+  reportProblem: (subject, description, pageUrl) =>
+    api.post("/api/support/problem", { subject, description, pageUrl }),
 };
 
 export const notifications = {

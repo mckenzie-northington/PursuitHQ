@@ -11,6 +11,10 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+
+  // Set alongside the message so the error box can offer a way out, rather than
+  // leaving somebody to work out for themselves that they never signed up.
+  const [noAccount, setNoAccount] = useState(false);
   const [busy, setBusy] = useState(false);
 
   /**
@@ -26,6 +30,7 @@ export default function LoginPage() {
   async function submitPassword(e) {
     e.preventDefault();
     setError("");
+    setNoAccount(false);
     setBusy(true);
 
     try {
@@ -42,6 +47,7 @@ export default function LoginPage() {
       }
     } catch (err) {
       setError(err.message);
+      setNoAccount(err.code === "NoAccount");
     }
 
     setBusy(false);
@@ -50,6 +56,7 @@ export default function LoginPage() {
   async function submitCode(e) {
     e.preventDefault();
     setError("");
+    setNoAccount(false);
     setBusy(true);
 
     try {
@@ -68,6 +75,7 @@ export default function LoginPage() {
     setPending(null);
     setCode("");
     setError("");
+    setNoAccount(false);
   }
 
   const field =
@@ -88,6 +96,16 @@ export default function LoginPage() {
         {error && (
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {error}
+
+            {noAccount && (
+              <>
+                {" "}
+                <Link href="/register" className="font-medium underline">
+                  Create one
+                </Link>
+                , or check the spelling.
+              </>
+            )}
           </div>
         )}
 

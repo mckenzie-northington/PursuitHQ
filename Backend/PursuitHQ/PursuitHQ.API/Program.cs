@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi;
 using PursuitHQ.API.Data;
@@ -190,6 +191,7 @@ builder.Services.AddSingleton<EmailQueue>();
 builder.Services.AddSingleton<IEmailQueue>(sp => sp.GetRequiredService<EmailQueue>());
 builder.Services.AddHostedService<EmailQueueWorker>();
 builder.Services.AddScoped<ICreationNotifier, CreationNotifier>();
+builder.Services.AddScoped<IAccountNotifier, AccountNotifier>();
 
 // Same idea for messages: queued after the message is safely saved, so the
 // send never waits on an email provider and never fails because of one.
@@ -422,8 +424,34 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
     Predicate = check => check.Tags.Contains("ready")
 });
 
-app.Map("/error", () => Results.Json(
-    new ApiErrorDto("ServerError", "Something went wrong. Please try again."),
-    statusCode: StatusCodes.Status500InternalServerError));
+// ---------------------------------------------------------------------------
+// Where every unhandled exception ends up.
+//
+// The student is told nothing about what went wrong, which is correct - an
+// exception message can name a table, a file path or a connection string. What
+// they are given is a reference: eight characters they can quote in a bug
+// report, printed in the log next to the stack trace it belongs to.
+//
+// Without that, finding the cause of one 500 means reading a server log by
+// timestamp and hoping. With it, the log is searchable by the exact string the
+// person who hit the error is looking at.
+// ---------------------------------------------------------------------------
+app.Map("/error", (HttpContext http, ILoggerFactory loggers) =>
+{
+    var failure = http.Features.Get<IExceptionHandlerPathFeature>();
+    var reference = Guid.NewGuid().ToString("N")[..8];
+
+    loggers.CreateLogger("PursuitHQ.UnhandledError").LogError(
+        failure?.Error,
+        "Unhandled exception. Reference {Reference}. Path {Path}.",
+        reference,
+        failure?.Path ?? "unknown");
+
+    return Results.Json(
+        new ApiErrorDto(
+            "ServerError",
+            $"Something went wrong. Please try again. (Reference {reference})"),
+        statusCode: StatusCodes.Status500InternalServerError);
+});
 
 app.Run();

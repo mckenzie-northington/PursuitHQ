@@ -26,6 +26,23 @@ namespace PursuitHQ.API.Services
 
         public int TimeoutSeconds { get; set; } = 30;
 
+        /// <summary>
+        /// Where "report a problem" messages are delivered.
+        ///
+        /// Separate from FromAddress because the two do different jobs: the
+        /// from address has to be on a domain Resend has verified, while this
+        /// is simply an inbox somebody reads. Left blank, it falls back to the
+        /// from address so the feature still works rather than silently
+        /// dropping reports.
+        /// </summary>
+        public string SupportAddress { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The support inbox, or the from address if none was configured.
+        /// </summary>
+        public string SupportInbox =>
+            string.IsNullOrWhiteSpace(SupportAddress) ? FromAddress : SupportAddress;
+
         public bool IsConfigured =>
             !string.IsNullOrWhiteSpace(ApiKey) && !string.IsNullOrWhiteSpace(FromAddress);
     }

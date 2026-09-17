@@ -122,6 +122,16 @@ export default function ProfilePanel({ open, onClose }) {
           <p className="mt-2 text-center text-xs text-slate-500">
             Edit your profile, photo, notifications and security.
           </p>
+
+          {/* The only route to "report a problem" on a wide screen, where the
+              menu that carries it on a phone is not shown. */}
+          <Link
+            href="/support"
+            onClick={onClose}
+            className="mt-3 block text-center text-xs font-medium text-slate-500 underline transition hover:text-slate-700"
+          >
+            Report a problem
+          </Link>
         </div>
       </aside>
     </div>

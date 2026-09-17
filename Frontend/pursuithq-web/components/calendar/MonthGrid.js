@@ -58,7 +58,7 @@ export default function MonthGrid({
             <div
               key={key}
               onClick={() => onEmptyClick(key)}
-              className={`min-h-[7.5rem] cursor-pointer border-b border-r border-slate-200 p-1.5 transition ${
+              className={`min-h-[4.25rem] cursor-pointer border-b border-r border-slate-200 p-1 transition sm:min-h-[7.5rem] sm:p-1.5 ${
                 inMonth ? "bg-white hover:bg-slate-50" : "bg-slate-50/70 hover:bg-slate-100/70"
               }`}
             >

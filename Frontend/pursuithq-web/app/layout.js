@@ -9,6 +9,20 @@ export const metadata = {
 };
 
 /**
+ * Stated rather than inherited.
+ *
+ * Without width=device-width a phone renders the page at about 980px and then
+ * shrinks the picture, so every layout built for a narrow screen is thrown away
+ * and all the text arrives too small to read. maximumScale is left alone on
+ * purpose: blocking zoom is a real accessibility problem for anyone who needs
+ * to enlarge something, and it buys nothing.
+ */
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
+/**
  * Applies the saved theme before the page paints.
  *
  * React cannot do this: its first render happens after the browser has already

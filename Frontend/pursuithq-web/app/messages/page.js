@@ -344,7 +344,7 @@ export default function MessagesPage() {
     // Fills the window rather than sitting in a fixed-height box. The
     // subtracted 4.5rem is the nav bar, rounded up: spare pixels are invisible,
     // too few bring back the page scrollbar this exists to remove.
-    <div className="mx-auto flex h-[calc(100dvh-4.5rem)] max-w-6xl flex-col px-6 py-6">
+    <div className="mx-auto flex h-[calc(100dvh-3.75rem)] max-w-6xl flex-col px-4 py-4 sm:px-6 sm:py-6 md:h-[calc(100dvh-4.5rem)]">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Messages</h1>
 
@@ -427,7 +427,14 @@ export default function MessagesPage() {
             showRequests ? "xl:grid-cols-[15.5rem_1fr_12.5rem]" : ""
           }`}
         >
-          <ul className="min-h-0 space-y-1 overflow-y-auto">
+          {/* Two columns is a desktop idea. On a phone there is only room for
+              one, so the list stands in for the whole page until a conversation
+              is picked, and the thread replaces it until you come back. */}
+          <ul
+            className={`min-h-0 space-y-1 overflow-y-auto ${
+              openId ? "hidden md:block" : ""
+            }`}
+          >
             {list.map((conversation) => (
               <li key={conversation.id}>
                 <button
@@ -522,7 +529,7 @@ export default function MessagesPage() {
               }}
             />
           ) : (
-            <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+            <div className="hidden rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 md:block">
               Pick a conversation.
             </div>
           )}
@@ -814,6 +821,24 @@ function RequestsPanel({ requests, invitations, onAnswerRequest, onAnswerInvite 
 
 /* ------------------------------------------------------------------ thread */
 
+function BackIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
 function Thread({ conversation, me, onChanged, onClosed }) {
   const [messages, setMessages] = useState([]);
   const [ready, setReady] = useState(false);
@@ -1054,6 +1079,16 @@ function Thread({ conversation, me, onChanged, onClosed }) {
     <div className="flex h-full min-h-0 flex-col rounded-xl border border-slate-200 bg-white">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
+          {/* Phones only. On a wide screen the list is still sitting next to
+              this, so there is nothing to go back to. */}
+          <button
+            onClick={() => onClosed?.()}
+            aria-label="Back to conversations"
+            className="-ml-1 shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 md:hidden"
+          >
+            <BackIcon />
+          </button>
+
           {conversation.isGroup ? (
             <Avatar
               group={{

@@ -24,13 +24,64 @@ namespace PursuitHQ.API.Services
         /// <summary>A secret. Environment variable or user-secrets only.</summary>
         public string SecretAccessKey { get; set; } = string.Empty;
 
-        /// <summary>True when Provider is S3 and every credential is present.</summary>
-        public bool UsesObjectStorage =>
-            string.Equals(Provider, "S3", StringComparison.OrdinalIgnoreCase)
-            && !string.IsNullOrWhiteSpace(ServiceUrl)
-            && !string.IsNullOrWhiteSpace(Bucket)
-            && !string.IsNullOrWhiteSpace(AccessKeyId)
-            && !string.IsNullOrWhiteSpace(SecretAccessKey);
+        /// <summary>
+        /// True when Provider is S3 and the settings are good enough to build a
+        /// client from.
+        ///
+        /// ServiceUrl is checked for being an actual absolute http(s) URL, not
+        /// merely for being non-empty. That distinction cost a day: the value
+        /// deployed was a bare Cloudflare account id rather than the endpoint it
+        /// belongs to, this returned true, and the AWS SDK threw from its
+        /// constructor. Because the client is a singleton, that failure did not
+        /// appear at startup where it would have been obvious - it appeared as
+        /// a 500 on every page that touches file storage, and on no others,
+        /// which reads as four unrelated bugs rather than one setting.
+        /// </summary>
+        public bool UsesObjectStorage => WantsObjectStorage && ConfigurationProblem is null;
+
+        /// <summary>
+        /// Whether object storage was asked for at all.
+        ///
+        /// Separate from UsesObjectStorage, and both halves are needed:
+        /// ConfigurationProblem is null for a local-disk setup too - there is
+        /// nothing wrong with it - so "no problem" on its own would have meant
+        /// every development machine trying to build an S3 client out of blank
+        /// settings.
+        /// </summary>
+        public bool WantsObjectStorage =>
+            string.Equals(Provider, "S3", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// What is wrong with the object storage settings, or null when nothing
+        /// is - including when object storage was never asked for.
+        ///
+        /// Logged at startup. A misconfigured bucket falls back to local disk
+        /// rather than refusing to start, which is the right call, but silently
+        /// falling back on a host with an ephemeral disk means uploads that
+        /// disappear on the next restart. That deserves a sentence in the log.
+        /// </summary>
+        public string? ConfigurationProblem
+        {
+            get
+            {
+                if (!WantsObjectStorage) return null;
+
+                if (string.IsNullOrWhiteSpace(ServiceUrl)) return "ServiceUrl is not set";
+                if (string.IsNullOrWhiteSpace(Bucket)) return "Bucket is not set";
+                if (string.IsNullOrWhiteSpace(AccessKeyId)) return "AccessKeyId is not set";
+                if (string.IsNullOrWhiteSpace(SecretAccessKey)) return "SecretAccessKey is not set";
+
+                if (!Uri.TryCreate(ServiceUrl, UriKind.Absolute, out var endpoint)
+                    || (endpoint.Scheme != Uri.UriSchemeHttps && endpoint.Scheme != Uri.UriSchemeHttp))
+                {
+                    return $"ServiceUrl is not an absolute http(s) URL: \"{ServiceUrl}\". "
+                        + "For Cloudflare R2 it looks like "
+                        + "https://<account-id>.r2.cloudflarestorage.com";
+                }
+
+                return null;
+            }
+        }
 
         /// <summary>Folder for uploads, relative to the app root. Kept outside wwwroot on purpose.</summary>
         public string LocalPath { get; set; } = "storage/uploads";

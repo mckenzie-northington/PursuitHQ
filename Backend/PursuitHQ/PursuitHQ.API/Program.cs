@@ -405,11 +405,29 @@ app.UseAuthorization();
 // rather than against whatever address it arrived from.
 app.UseRateLimiter();
 
-app.Logger.LogInformation(
-    "File storage: {Provider}",
-    storageOptions.UsesObjectStorage
-        ? $"object storage, bucket \"{storageOptions.Bucket}\""
-        : "local disk (files will not survive a restart on an ephemeral host)");
+if (storageOptions.UsesObjectStorage)
+{
+    app.Logger.LogInformation(
+        "File storage: object storage, bucket \"{Bucket}\" at {Endpoint}.",
+        storageOptions.Bucket,
+        storageOptions.ServiceUrl);
+}
+else if (storageOptions.ConfigurationProblem is string problem)
+{
+    // A warning, not information. Object storage was asked for and could not be
+    // built, so this is a deployment that will accept uploads and lose them on
+    // the next restart. Saying which setting is wrong turns a day of guessing
+    // into a one-line fix.
+    app.Logger.LogWarning(
+        "File storage: falling back to local disk because {Problem}. "
+        + "Uploads will NOT survive a restart on an ephemeral host.",
+        problem);
+}
+else
+{
+    app.Logger.LogInformation(
+        "File storage: local disk (files will not survive a restart on an ephemeral host).");
+}
 
 app.MapControllers();
 

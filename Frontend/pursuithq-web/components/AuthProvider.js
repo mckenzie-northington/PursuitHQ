@@ -12,7 +12,23 @@ import { setStoredUser } from "@/lib/api";
 
 const AuthContext = createContext(null);
 
-const PUBLIC_ROUTES = ["/login", "/register", "/forgot-password", "/reset-password"];
+/**
+ * Pages that render without a session.
+ *
+ * The two policy pages belong here for a reason beyond convenience: they are
+ * linked from the sign-up form, and somebody deciding whether to hand over
+ * their coursework and messages is exactly the person who needs to read them -
+ * before they have an account. Bouncing them to /login would mean the only
+ * people who can read the privacy policy are the ones who already agreed to it.
+ */
+const PUBLIC_ROUTES = [
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/privacy",
+  "/terms",
+];
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);

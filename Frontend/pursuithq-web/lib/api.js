@@ -377,6 +377,12 @@ export const auth = {
   /** Only the zone. updateProfile would blank every field it was not given. */
   updateTimeZone: (timeZone) => api.put("/api/auth/me/timezone", { timeZone }),
 
+  /**
+   * Marks the walkthrough as seen, or false to ask for it again. Returns the
+   * updated profile, so the caller can put it straight into updateUser.
+   */
+  setTourSeen: (hasSeenTour) => api.put("/api/auth/me/tour", { hasSeenTour }),
+
   twoFactor: {
     status: () => api.get("/api/auth/2fa"),
     setUp: () => api.post("/api/auth/2fa/setup", {}),

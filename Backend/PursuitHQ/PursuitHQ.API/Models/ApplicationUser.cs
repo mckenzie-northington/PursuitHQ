@@ -70,6 +70,20 @@ namespace PursuitHQ.API.Models
         /// </summary>
         public DateTime? TermsAcceptedAt { get; set; }
 
+        /// <summary>
+        /// Whether this student has been shown the walkthrough.
+        ///
+        /// On the account rather than in the browser, because "have you seen
+        /// this" is a fact about the person, not about a device. Stored in the
+        /// browser it would restart on their phone, restart again in a second
+        /// browser, and vanish whenever they cleared site data - three ways to
+        /// be shown a beginner's tour months after becoming a regular.
+        ///
+        /// Set back to false by the "show it again" button in settings, which is
+        /// why this is a flag rather than a completion date.
+        /// </summary>
+        public bool HasSeenTour { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

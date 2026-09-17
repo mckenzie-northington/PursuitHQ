@@ -1,6 +1,7 @@
 import { AuthProvider } from "@/components/AuthProvider";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import NavBar from "@/components/NavBar";
+import TourGuide from "@/components/TourGuide";
 import "./globals.css";
 
 export const metadata = {
@@ -53,6 +54,12 @@ export default function RootLayout({ children }) {
           <AuthProvider>
             <NavBar />
             <main>{children}</main>
+
+            {/* Inside AuthProvider, and outside <main>, so it survives moving
+                between pages - which is the whole trick: the walkthrough
+                navigates, and a card that unmounted on every route change
+                could not. */}
+            <TourGuide />
           </AuthProvider>
         </ThemeProvider>
       </body>

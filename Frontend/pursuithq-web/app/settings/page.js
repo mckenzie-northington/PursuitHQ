@@ -129,6 +129,7 @@ export default function SettingsPage() {
   const [savingPassword, setSavingPassword] = useState(false);
 
   const [deleting, setDeleting] = useState(false);
+  const [restartingTour, setRestartingTour] = useState(false);
 
   // The confirmation used to be window.prompt(). Two things wrong with that:
   // once somebody ticks "prevent this page from creating additional dialogs"
@@ -304,6 +305,23 @@ export default function SettingsPage() {
       setPasswordError(details || err.message);
     } finally {
       setSavingPassword(false);
+    }
+  }
+
+  async function restartTour() {
+    setRestartingTour(true);
+
+    try {
+      // Clearing the flag is all it takes. TourGuide watches the signed-in
+      // profile and starts itself the moment this comes back false, so there
+      // is nothing here to co-ordinate with it.
+      const profile = await authApi.setTourSeen(false);
+      updateUser(profile);
+
+      router.push("/dashboard");
+    } catch (err) {
+      setProfileError(err.message);
+      setRestartingTour(false);
     }
   }
 
@@ -802,6 +820,14 @@ export default function SettingsPage() {
         <h2 className="font-medium text-slate-900">Account</h2>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            onClick={restartTour}
+            disabled={restartingTour}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            {restartingTour ? "Starting..." : "Show the walkthrough again"}
+          </button>
+
           <button
             onClick={signOut}
             className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"

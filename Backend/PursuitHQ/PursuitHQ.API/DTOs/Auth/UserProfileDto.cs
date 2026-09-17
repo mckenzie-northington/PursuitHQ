@@ -24,6 +24,13 @@ namespace PursuitHQ.API.DTOs.Auth
         /// leaves the server.
         /// </summary>
         public bool HasPhoto { get; set; }
+
+        /// <summary>
+        /// False until the walkthrough has been finished or skipped. The website
+        /// reads this to decide whether to start it.
+        /// </summary>
+        public bool HasSeenTour { get; set; }
+
         public DateTime CreatedAt { get; set; }
     }
 }

@@ -823,6 +823,33 @@ namespace PursuitHQ.API.Controllers
         }
 
         /// <summary>
+        /// Records that the walkthrough has been finished or skipped, or asks
+        /// for it again.
+        ///
+        /// Its own endpoint for the same reason as the time zone below: UpdateMe
+        /// writes the whole profile from whatever it is handed, so a caller that
+        /// knows only this one fact would blank everything else on its way past.
+        /// </summary>
+        [HttpPut("me/tour")]
+        [Authorize]
+        public async Task<ActionResult<UserProfileDto>> UpdateTourSeen(UpdateTourDto dto)
+        {
+            var user = await GetCurrentUserAsync();
+            if (user is null) return Unauthorized();
+
+            user.HasSeenTour = dto.HasSeenTour;
+
+            var result = await _userManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                return BadRequest(new ApiErrorDto("UpdateFailed", "Could not save that."));
+            }
+
+            return Ok(ToProfileDto(user));
+        }
+
+        /// <summary>
         /// Changes only the time zone.
         ///
         /// Separate from UpdateMe because that one writes the whole profile from
@@ -891,6 +918,7 @@ namespace PursuitHQ.API.Controllers
             EducationLevel = user.EducationLevel,
             IsDiscoverable = user.IsDiscoverable,
             HasPhoto = !string.IsNullOrEmpty(user.PhotoPath),
+            HasSeenTour = user.HasSeenTour,
             CreatedAt = user.CreatedAt
         };
     }

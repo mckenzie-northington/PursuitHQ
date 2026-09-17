@@ -336,6 +336,29 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
+// ---------------------------------------------------------------------------
+// Apply schema migrations at startup.
+//
+// A managed database starts out empty. Nothing else in the deployment pipeline
+// runs "dotnet ef database update", so without this the app boots fine and
+// connects fine - which is exactly why /health/ready reports Healthy against an
+// empty database - and then throws on the first real query because no tables
+// exist. Applying migrations here keeps the deployed schema in step with the
+// code that was just deployed, with no manual step to forget.
+//
+// This is safe because a single instance of this service runs at a time. If
+// that ever changes, move this into a separate release command so two starting
+// instances cannot race each other applying the same migration.
+// ---------------------------------------------------------------------------
+using (var migrationScope = app.Services.CreateScope())
+{
+    var migrationDb = migrationScope.ServiceProvider
+        .GetRequiredService<ApplicationDbContext>();
+
+    await migrationDb.Database.MigrateAsync();
+    app.Logger.LogInformation("Database migrations applied.");
+}
+
 // First in the pipeline, before anything reads the scheme or the client address.
 //
 // A host like Render terminates TLS at its edge and forwards plain HTTP to the

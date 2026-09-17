@@ -441,11 +441,26 @@ app.Map("/error", (HttpContext http, ILoggerFactory loggers) =>
     var failure = http.Features.Get<IExceptionHandlerPathFeature>();
     var reference = Guid.NewGuid().ToString("N")[..8];
 
+    // The innermost exception, not the outer one.
+    //
+    // A failed save arrives as a DbUpdateException wrapping a PostgresException
+    // wrapping the actual complaint. The outer message is always the same
+    // sentence about an error occurring while saving; the inner one names the
+    // constraint. Only the inner one is worth reading.
+    var cause = failure?.Error;
+    while (cause?.InnerException is not null) cause = cause.InnerException;
+
+    // Type and message go in the message template rather than being left to the
+    // stack trace underneath. A log viewer's search filter matches single lines,
+    // so anything on a following line is invisible the moment you search for
+    // the reference - which is precisely when you are looking for it.
     loggers.CreateLogger("PursuitHQ.UnhandledError").LogError(
         failure?.Error,
-        "Unhandled exception. Reference {Reference}. Path {Path}.",
+        "Unhandled exception. Reference {Reference}. Path {Path}. {ExceptionType}: {ExceptionMessage}",
         reference,
-        failure?.Path ?? "unknown");
+        failure?.Path ?? "unknown",
+        cause?.GetType().FullName ?? "unknown",
+        cause?.Message ?? "no message");
 
     return Results.Json(
         new ApiErrorDto(

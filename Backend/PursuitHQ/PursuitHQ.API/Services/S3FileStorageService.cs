@@ -65,7 +65,25 @@ namespace PursuitHQ.API.Services
                 // Deliberately not set from the upload: content type is a claim
                 // the uploader made, and nothing here should treat it as fact.
                 // Downloads set their own headers from the database row.
-                ContentType = "application/octet-stream"
+                ContentType = "application/octet-stream",
+
+                // Both required by Cloudflare R2, and both named in Cloudflare's
+                // own AWS SDK for .NET documentation.
+                //
+                // Version 4 of the SDK streams uploads using AWS's Streaming
+                // SigV4 and attaches a trailing checksum by default. R2 does not
+                // implement either, so it rejects every upload - silently
+                // enough, from the caller's side, that it looks like the file
+                // simply did not save. This broke every upload path at once the
+                // moment object storage was switched on: study materials,
+                // message attachments, profile photos and group photos.
+                //
+                // Nothing is given up by turning them off. The transport is
+                // still HTTPS, and the request is still signed - it is the
+                // payload-streaming variant of the signature that R2 cannot
+                // read.
+                DisablePayloadSigning = true,
+                DisableDefaultChecksumValidation = true
             }, ct);
 
             return key;

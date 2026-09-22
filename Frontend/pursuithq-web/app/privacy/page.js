@@ -27,7 +27,7 @@ export const metadata = {
     "What PursuitHQ stores, who else it is sent to, and what you can change or delete.",
 };
 
-const LAST_UPDATED = "17 September 2026";
+const LAST_UPDATED = "22 September 2026";
 
 const SECTIONS = [
   { id: "who", title: "Who runs PursuitHQ" },
@@ -215,27 +215,38 @@ export default function PrivacyPage() {
             other part of the app.
           </p>
 
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-800">
+          <div className="rounded-md border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm leading-relaxed text-indigo-900">
             <p className="font-medium">
-              PursuitHQ uses Gemini&apos;s free tier. On the free tier, Google uses
-              the content that is submitted to it to improve their products.
+              PursuitHQ pays for Gemini. On a paid plan, Google states that it
+              does not use prompts or responses to improve its products or train
+              its models.
             </p>
             <p className="mt-2">
-              That includes the text of a resume you ask to have reviewed, and the
-              study material you ask to be turned into flashcards, a quiz or a
-              study guide. Once it has been sent, it is out of PursuitHQ&apos;s
-              hands. Deleting it here does not pull it back.
+              That is the whole reason PursuitHQ pays for it. On Google&apos;s
+              free tier, submitted content <em>is</em> used to improve their
+              products, and that was not an acceptable thing to do with somebody
+              else&apos;s resume or coursework.
+            </p>
+            <p className="mt-2">
+              Google does still record prompts and responses for a limited period,
+              to detect abuse of its service and to meet legal obligations. So
+              your content does leave PursuitHQ and is briefly held by Google - it
+              is simply not used to build anything.
             </p>
           </div>
 
           <p className="font-medium text-slate-900">What that means in practice</p>
           <p>
-            Do not put anything into an AI feature that you would mind a large
-            company keeping a copy of. A resume with your home address and phone
-            number on it is the common case, so strip those before you ask for a
-            review - they are not what the review is about anyway. The same goes
-            for an employer&apos;s internal documents, a professor&apos;s
-            unpublished material, or anything covered by an agreement you signed.
+            Less caution is needed than on a free plan, but not none. Your content
+            still travels to another company, and once it has been sent it is out
+            of PursuitHQ&apos;s hands - deleting it here does not pull it back.
+          </p>
+          <p>
+            Treat the AI features the way you would treat any outside service.
+            They are the right place for your own coursework and your own resume.
+            They are not the place for an employer&apos;s internal documents, a
+            professor&apos;s unpublished material, or anything covered by an
+            agreement you signed.
           </p>
           <p>
             Skipping the AI features costs you nothing else. Courses, assignments,

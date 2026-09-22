@@ -28,7 +28,7 @@ export const metadata = {
     "The rules for using PursuitHQ, in plain English: who can join, what you may post, and what the app does not promise.",
 };
 
-const LAST_UPDATED = "17 September 2026";
+const LAST_UPDATED = "22 September 2026";
 
 const SECTIONS = [
   { id: "what", title: "What PursuitHQ is" },
@@ -244,13 +244,15 @@ export default function TermsPage() {
         <Section id="ai" number={n("ai")} title="The AI features">
           <p>
             Resume review, flashcard and quiz and study-guide generation, and
-            study chat send your content to Google&apos;s Gemini API. On the plan
-            PursuitHQ uses, Google is allowed to use submitted content to improve
-            their products.
+            study chat send your content to Google&apos;s Gemini API. PursuitHQ
+            pays for Gemini, and on a paid plan Google states that it does not
+            use prompts or responses to improve its products. It does still
+            record them for a limited period to detect abuse of its service and
+            to meet legal obligations.
           </p>
           <p>
-            Using those features means accepting that. Do not put anything into
-            them that you would mind a large company keeping. The{" "}
+            Using those features means accepting that your content is sent to
+            Google on those terms. The{" "}
             <a
               href="/privacy#ai"
               className="font-medium text-indigo-600 hover:text-indigo-700"

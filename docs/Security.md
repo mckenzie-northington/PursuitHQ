@@ -199,7 +199,7 @@ The reasoning: an email hands content to a third-party mail provider, leaves it 
 
 **Published policies.** `/privacy` and `/terms` exist, are reachable without an account (linked from the sign-in page), and are linked from the checkbox on the registration form — at the point the data is actually collected, which is the part that matters. Both were drafted from what the code does and **both still need review by somebody qualified before real users rely on them**. The contact address in them is a placeholder (`support@pursuit-hq.com`) and must be replaced with a monitored mailbox.
 
-The privacy policy states the Gemini free-tier training clause plainly, in its own section, because that is the single most significant thing PursuitHQ does with somebody else's data.
+The privacy policy gives the Gemini integration a section of its own, because sending somebody's coursework and resume to another company is the single most significant thing PursuitHQ does with their data. It says that PursuitHQ runs on a **paid** Gemini plan, that Google states it does not use paid-tier prompts or responses to improve its products, and — the part that is easy to leave out once the training clause no longer applies — that Google still logs prompts and responses briefly for abuse detection and legal compliance. The content still leaves the app, and the policy still has to say so.
 
 ## 8. Known Gaps
 

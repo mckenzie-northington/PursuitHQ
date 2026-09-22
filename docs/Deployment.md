@@ -66,10 +66,11 @@ The reads still cost compute even though they no longer write, so watch the Neon
 
 ### AI cost
 
-**Google Gemini**, free tier. Two things to know:
+**Google Gemini**, **paid plan — billing enabled**. Three things to know:
 
-1. **Free-tier content is used to improve Google's products.** Study tools and resume review send students' notes and resumes, so either disclose this in the privacy policy or move to a paid tier before opening the app to other people. See `Security.md` §7 — this is a launch blocker.
-2. Free-tier quotas are per-project and change. Check Google AI Studio, not this document.
+1. **This must stay on the paid plan.** On the free tier Google uses submitted content to improve its products; on a paid plan it does not. Study tools and resume review send students' notes and resumes, so the free tier stopped being an option the moment anyone else had an account. Roughly a penny per request.
+2. **An API key in a project without billing silently reverts to free-tier terms.** No error, no log line, no failed request — just different terms on somebody else's coursework. If you rotate the key or move projects, confirm billing is enabled on the *same* project.
+3. Paid-tier quotas are per-project and change. Check Google AI Studio, not this document.
 
 Cost control, in order: the per-user daily cap (`Ai:RequestsPerUserPerDay`, already built as `AiUsageLimiter`), truncating documents before sending, caching generated output, cheaper models for flashcards and quizzes, and a hard billing cap with the provider.
 

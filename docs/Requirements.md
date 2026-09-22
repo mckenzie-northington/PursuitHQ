@@ -189,8 +189,8 @@ Nothing in this document should be read as promising an application tracker or j
 
 - Backend is ASP.NET Core Web API on .NET 10 with Entity Framework Core and PostgreSQL.
 - Frontend is Next.js (JavaScript) with Tailwind CSS.
-- AI features call Google Gemini through an `IAiService` abstraction; the free Flash tier covers development, with Azure OpenAI (funded by the Azure for Students credit) as the production upgrade path.
-- Gemini's free tier uses submitted content to improve Google's products; a privacy disclosure or a paid tier is required before third parties use the AI features.
+- AI features call Google Gemini through an `IAiService` abstraction, on a paid plan, with Azure OpenAI (funded by the Azure for Students credit) as an alternative provider if needed.
+- Gemini's free tier uses submitted content to improve Google's products; the paid plan does not. PursuitHQ is on the paid plan for that reason, and the privacy policy discloses that content is still sent to Google and briefly logged there.
 - Single-region deployment; no multi-tenancy beyond per-user data isolation.
 - Students authenticate with email/password, optionally with a TOTP second factor. No university SSO.
 - Messaging is delivered by polling, not push: the client re-fetches on a timer. SignalR is a planned replacement, not a current dependency.

@@ -298,9 +298,12 @@ prints every email — reset links included — to the API terminal. Nothing bre
 the mail just does not leave the laptop. The settings page shows this as
 "delivery not configured".
 
-**Billing is enabled**, with $10 of credit on it. That was not for cost — the
-free tier caps you at 20 requests per *minute*, shared across flashcards, chat
-and tests, which is easy to hit in one sitting. Paying lifts that ceiling.
+**Billing is enabled**, with $10 of credit on it. Two reasons, and the second one
+matters more. The free tier caps you at 20 requests per *minute*, shared across
+flashcards, chat and tests, which is easy to hit in one sitting — paying lifts
+that ceiling. And the free tier's terms let Google use submitted content to
+improve its products, which is not an acceptable thing to do with another
+student's notes; the paid plan's terms do not.
 
 Rough costs at current prices: a flashcard deck ~1.3¢, a chat question ~0.8¢, a
 study guide ~1.4¢. Maxing out the app's own 30-a-day cap every day would be about
@@ -441,9 +444,11 @@ Tracked in `docs/README.md`, repeated here so they are not forgotten:
   it. GitHub is the backup now, which means pushing is not optional. Note that
   `C:\Users\mcken\Desktop` and `C:\Users\mcken\OneDrive\Desktop` are two
   different folders on this machine; the old, emptied copy is in the second one.
-- **Gemini free tier uses your content to improve Google's products.** Fine while
-  you are the only user; needs a privacy disclosure or a paid tier before anyone
-  else uses the AI features. Worth re-checking whether the paid tier is different.
+- **Keep Gemini on the paid plan.** On the free tier Google uses submitted content
+  to improve its products; on a paid plan it does not, and that is the only
+  reason it is safe to point other people's coursework and resumes at it. An API
+  key in a project without billing reverts to free-tier terms silently - no
+  error, no log line - so re-check billing whenever you rotate the key.
 - **Reminders only go out while the API is up.** `ReminderBackgroundService` runs
   in-process every five minutes. At deployment that becomes a secured endpoint
   with a hosted cron in front of it.

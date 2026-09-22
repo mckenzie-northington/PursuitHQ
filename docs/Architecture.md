@@ -207,21 +207,24 @@ Feature services sit on top of it: `IAiService` knows how to reach Gemini, the f
 
 ### 6a. AI Provider — Google Gemini
 
-**Decision:** Google Gemini via `IAiService`. Its Flash models have a genuinely free tier, which lets every AI feature be built and tested at no cost.
+**Decision:** Google Gemini via `IAiService`. Its Flash models have a genuinely free tier, which let every AI feature be built and tested at no cost. PursuitHQ now runs on a **paid** plan — see the trade-off below, which is the reason.
 
 Gemini is a REST API, so a typed `HttpClient` is enough — no third-party SDK. The key travels in a header, never in the URL, because query-string keys leak into logs and browser history.
 
 Model ids live in configuration (`Ai:SearchModel`, `Ai:StudyToolModel`, `Ai:ResumeModel`) rather than in code, so they can be changed without a redeploy. They change as Google ships new versions — verify against the current model list rather than trusting a value written down here.
 
-**Privacy: the free tier trade-off**
+**Privacy: why this runs on a paid plan**
 
-**On Gemini's free tier, Google states that content is used to improve their products. On paid tiers it is not.**
+**On Gemini's free tier, Google states that submitted content is used to improve their products, and that human reviewers may read it. On a paid plan Google states it does not use prompts or responses to improve its products.** (Gemini API Additional Terms of Service, checked 22 September 2026.)
 
-PursuitHQ sends lecture notes, uploaded coursework and resumes to this API, so this is a real disclosure obligation, not a footnote:
+PursuitHQ sends lecture notes, uploaded coursework and resumes to this API. That made the free tier unusable the moment anybody other than the developer had an account, so billing is enabled and the app runs on the paid plan. **Do not move it back.** The cost is roughly a penny per request; the free tier's price is other people's coursework.
 
-- While the app is in development and you are the only user, this is a non-issue.
-- **Before other people use the AI features**, the privacy policy must say plainly that material submitted to study tools and resume review is sent to Google and may be used to improve their models.
-- Better: move to a paid tier before public signups. This is the main reason `IAiService` exists.
+What the paid plan does *not* mean:
+
+- Google still logs prompts and responses for a limited period, for abuse detection and legal compliance. Content still leaves PursuitHQ.
+- The privacy policy therefore still has a section of its own about the AI features - it now says the content is sent and briefly retained rather than that it is used for training. Both facts need saying; only one of them changed.
+
+If the API key is ever moved to a project without billing enabled, the app silently falls back to free-tier terms with no error and no log line. That is the failure mode to watch for, and it is a privacy regression rather than an outage, so nothing will alert you to it.
 
 ### 6b. Text Extraction
 

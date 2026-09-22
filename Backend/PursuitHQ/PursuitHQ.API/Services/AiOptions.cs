@@ -18,8 +18,20 @@ namespace PursuitHQ.API.Services
 
         public int TimeoutSeconds { get; set; } = 60;
 
-        /// <summary>Per-user daily cap, so a runaway loop cannot run up a bill.</summary>
-        public int RequestsPerUserPerDay { get; set; } = 30;
+        /// <summary>
+        /// Per-user daily cap.
+        ///
+        /// Low on purpose. The AI features are the only part of PursuitHQ that
+        /// costs money per use, and it is paid for out of one person's pocket.
+        ///
+        /// Read what this is not: counting happens in memory, so a restart
+        /// clears it, and there is no ceiling across users at all - twenty
+        /// people at five each is a hundred requests nobody capped. The control
+        /// that actually bounds the bill is the requests-per-day quota set on
+        /// the Generative Language API in Google Cloud. Set that too, and treat
+        /// this number as courtesy rather than protection.
+        /// </summary>
+        public int RequestsPerUserPerDay { get; set; } = 5;
 
         public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey);
     }

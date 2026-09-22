@@ -131,7 +131,20 @@ namespace PursuitHQ.API.Services
 
                 if (status == 429)
                 {
-                    throw new HttpRequestException("Gemini rate limit or quota: " + detail);
+                    // The detail goes to the log, not to the student.
+                    //
+                    // This is the one failure a student will actually meet once
+                    // a daily quota is set on the provider, and "Gemini rate
+                    // limit or quota: RESOURCE_EXHAUSTED ..." tells them nothing
+                    // they can act on while naming a service they did not know
+                    // was involved. What they need to know is that it is not
+                    // their fault and roughly when to come back.
+                    _logger.LogWarning("Gemini rate limit or quota reached: {Detail}", detail);
+
+                    throw new HttpRequestException(
+                        "The AI features have hit their limit for now. Nothing is wrong with what "
+                        + "you sent - try again in a few minutes, or tomorrow if the day's "
+                        + "allowance has been used up. Everything else in PursuitHQ still works.");
                 }
 
                 if (IsTransient(status))

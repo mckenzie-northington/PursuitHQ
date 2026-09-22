@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="PursuitHQ.API/PursuitHQ.API.csproj" />
+  <Project Path="PursuitHQ.Tests/PursuitHQ.Tests.csproj" />
 </Solution>

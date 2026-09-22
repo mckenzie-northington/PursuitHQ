@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+
+    <!--
+      SQLite in memory, not the EF in-memory provider.
+
+      The in-memory provider is not a relational database: it ignores foreign
+      keys, unique indexes and column types, so a test can pass against it while
+      the same code fails against PostgreSQL. SQLite is a real relational engine
+      and enforces the schema, which is the whole point of testing isolation.
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PursuitHQ.API\PursuitHQ.API.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -46,6 +46,61 @@ namespace PursuitHQ.API.Services
             _client = new AmazonS3Client(settings.AccessKeyId, settings.SecretAccessKey, config);
         }
 
+        public async Task<string?> CheckAsync(CancellationToken ct = default)
+        {
+            // Two probes on purpose, because they fail differently and the
+            // difference is the whole diagnosis.
+            //
+            // Listing needs only read permission. Writing needs write. If
+            // listing works and writing does not, the credentials are right and
+            // the token is read-only. If neither works, the credentials
+            // themselves are wrong - a mistyped secret, or the token value
+            // pasted in place of the access key id. Those two problems look
+            // identical from the outside and have nothing in common.
+            try
+            {
+                await _client.ListObjectsV2Async(
+                    new ListObjectsV2Request { BucketName = _bucket, MaxKeys = 1 }, ct);
+            }
+            catch (Exception ex)
+            {
+                return $"cannot read bucket \"{_bucket}\" - {ex.GetType().Name}: {ex.Message}";
+            }
+
+            var key = $".write-check-{Guid.NewGuid():N}";
+
+            try
+            {
+                await _client.PutObjectAsync(new PutObjectRequest
+                {
+                    BucketName = _bucket,
+                    Key = key,
+                    ContentBody = "ok",
+                    DisablePayloadSigning = true,
+                    DisableDefaultChecksumValidation = true
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                return $"can read bucket \"{_bucket}\" but cannot write to it - "
+                    + $"{ex.GetType().Name}: {ex.Message}";
+            }
+
+            // Tidy up. A failure here is not worth reporting: the object is 2
+            // bytes and the thing being checked already passed.
+            try
+            {
+                await _client.DeleteObjectAsync(
+                    new DeleteObjectRequest { BucketName = _bucket, Key = key }, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not remove the storage write-check object.");
+            }
+
+            return null;
+        }
+
         public async Task<string> SaveAsync(
             Stream content, string originalFileName, CancellationToken ct = default)
         {

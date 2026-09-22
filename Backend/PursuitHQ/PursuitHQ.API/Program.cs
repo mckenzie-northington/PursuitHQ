@@ -429,6 +429,35 @@ else
         "File storage: local disk (files will not survive a restart on an ephemeral host).");
 }
 
+// ---------------------------------------------------------------------------
+// Prove the storage actually works, at startup, once.
+//
+// Saying which provider was selected is not the same as saying it works, and
+// that gap cost a day: the log cheerfully announced "object storage, bucket
+// ..." while every upload was being refused. Configuration being present is not
+// evidence that it is correct.
+//
+// Read and write are probed separately because they fail for unrelated reasons
+// - see the comment on S3FileStorageService.CheckAsync. Never fatal: a broken
+// bucket should not stop the rest of the app serving, it should complain
+// loudly in the place somebody will look.
+// ---------------------------------------------------------------------------
+using (var storageScope = app.Services.CreateScope())
+{
+    var storage = storageScope.ServiceProvider.GetRequiredService<IFileStorageService>();
+
+    var problem = await storage.CheckAsync();
+
+    if (problem is null)
+    {
+        app.Logger.LogInformation("File storage write-check passed.");
+    }
+    else
+    {
+        app.Logger.LogError("File storage write-check FAILED: {Problem}", problem);
+    }
+}
+
 app.MapControllers();
 
 app.MapHealthChecks("/health", new HealthCheckOptions
@@ -459,13 +488,21 @@ app.Map("/error", (HttpContext http, ILoggerFactory loggers) =>
     var failure = http.Features.Get<IExceptionHandlerPathFeature>();
     var reference = Guid.NewGuid().ToString("N")[..8];
 
-    // The innermost exception, not the outer one.
+    // Both ends of the chain, because which one carries the answer depends on
+    // the library.
     //
-    // A failed save arrives as a DbUpdateException wrapping a PostgresException
-    // wrapping the actual complaint. The outer message is always the same
-    // sentence about an error occurring while saving; the inner one names the
-    // constraint. Only the inner one is worth reading.
-    var cause = failure?.Error;
+    // Entity Framework wraps a useful PostgresException ("23503: violates
+    // foreign key constraint...") inside a useless DbUpdateException ("An error
+    // occurred while saving"), so the inner one is what you want. The AWS SDK
+    // does the exact opposite: a clear AmazonS3Exception ("Access Denied")
+    // wrapped around an HttpErrorResponseException whose entire message is
+    // "Exception of type ... was thrown."
+    //
+    // Logging only the innermost, which this used to do, turned a diagnosis
+    // into a guess for exactly that reason. Both are cheap; log both.
+    var outer = failure?.Error;
+
+    var cause = outer;
     while (cause?.InnerException is not null) cause = cause.InnerException;
 
     // Type and message go in the message template rather than being left to the
@@ -473,10 +510,13 @@ app.Map("/error", (HttpContext http, ILoggerFactory loggers) =>
     // so anything on a following line is invisible the moment you search for
     // the reference - which is precisely when you are looking for it.
     loggers.CreateLogger("PursuitHQ.UnhandledError").LogError(
-        failure?.Error,
-        "Unhandled exception. Reference {Reference}. Path {Path}. {ExceptionType}: {ExceptionMessage}",
+        outer,
+        "Unhandled exception. Reference {Reference}. Path {Path}. "
+        + "{ExceptionType}: {ExceptionMessage} | innermost {InnerType}: {InnerMessage}",
         reference,
         failure?.Path ?? "unknown",
+        outer?.GetType().FullName ?? "unknown",
+        outer?.Message ?? "no message",
         cause?.GetType().FullName ?? "unknown",
         cause?.Message ?? "no message");
 

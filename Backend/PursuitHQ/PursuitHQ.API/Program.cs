@@ -455,6 +455,34 @@ using (var storageScope = app.Services.CreateScope())
     else
     {
         app.Logger.LogError("File storage write-check FAILED: {Problem}", problem);
+
+        // The SHAPE of the credentials, never the credentials.
+        //
+        // Lengths and character class are enough to catch the mistake that
+        // actually happens - Cloudflare shows a "Token value" above the two S3
+        // keys, and pasting that instead produces a credential of the wrong
+        // length that fails with a permissions error rather than a format one.
+        // An access key id is 32 hex characters and a secret is 64.
+        //
+        // Logged only on failure, because there is no reason to print it when
+        // everything works, and it is not something to leave lying in a log
+        // that anyone with dashboard access can read.
+        if (storageOptions.WantsObjectStorage)
+        {
+            static string Shape(string value) =>
+                value.Length == 0 ? "empty"
+                : value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))
+                    ? $"{value.Length} chars, lowercase hex"
+                    : $"{value.Length} chars, NOT plain lowercase hex";
+
+            app.Logger.LogError(
+                "Storage credential shape - AccessKeyId: {KeyIdLength}; "
+                + "SecretAccessKey: {SecretLength}; endpoint: {Endpoint}. "
+                + "Expected 32 and 64 chars of lowercase hex.",
+                Shape(storageOptions.AccessKeyId),
+                Shape(storageOptions.SecretAccessKey),
+                storageOptions.ServiceUrl);
+        }
     }
 }
 

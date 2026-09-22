@@ -24,8 +24,18 @@ WORKDIR /app
 # InvariantGlobalization would drop the zone data entirely - either one turns
 # every reminder, due date and class time into the wrong hour, silently, with no
 # error anywhere. Do not "optimise" this image without testing a time zone.
+# libgssapi-krb5-2 is here only to silence a lie.
+#
+# Npgsql probes for Kerberos on every connection. Neon does not use it and
+# neither does this app, but when the library is missing the runtime prints
+#
+#   Error: libgssapi_krb5.so.2: cannot open shared object file
+#
+# to the log, in red, next to whatever real problem you are trying to read.
+# It cost hours of looking at the wrong line. Installing the library makes the
+# probe succeed quietly. A few hundred kilobytes for a log you can trust.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tzdata \
+ && apt-get install -y --no-install-recommends tzdata libgssapi-krb5-2 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app .
